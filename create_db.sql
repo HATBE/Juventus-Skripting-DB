@@ -1,5 +1,5 @@
 -- ========================
--- 1. Create Database if Not Exists
+-- Create Database if Not Exists
 -- ========================
 IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'MonitoringDB')
 BEGIN
@@ -11,7 +11,7 @@ USE MonitoringDB;
 GO
 
 -- ========================
--- 2. Drop Users and Logins if They Exist (for clean re-run)
+-- Drop Users and Logins if They Exist (for clean re-run)
 -- ========================
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'clientUser')
     DROP USER clientUser;
@@ -26,7 +26,7 @@ IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
 GO
 
 -- ========================
--- 3. Create Users and Logins
+-- Create Users and Logins
 -- ========================
 CREATE LOGIN clientUser WITH PASSWORD = 'Client123!';
 CREATE USER clientUser FOR LOGIN clientUser;
@@ -36,7 +36,7 @@ CREATE USER serverUser FOR LOGIN serverUser;
 GO
 
 -- ========================
--- 4. Create Tables
+-- Create Tables
 -- ========================
 CREATE TABLE Computer (
     computerId INT PRIMARY KEY IDENTITY(1,1),
@@ -55,8 +55,6 @@ CREATE TABLE Measurement (
     ramTotalMB INT CHECK (ramTotalMB >= 0),
     diskUsedGB FLOAT,
     diskTotalGB FLOAT,
-    networkReceivedMB FLOAT,
-    networkSentMB FLOAT,
     uptimeMinutes INT CHECK (uptimeMinutes >= 0),
 
     FOREIGN KEY (computerId) REFERENCES Computer(computerId)
@@ -92,27 +90,7 @@ CREATE TABLE MeasurementCategory (
 GO
 
 -- ========================
--- 5. Permissions: clientUser
--- ========================
-GRANT SELECT,  INSERT, UPDATE ON Computer TO clientUser;
-GRANT INSERT ON Measurement TO clientUser;
-GRANT SELECT ON Category TO clientUser;
-GRANT INSERT ON MeasurementCategory TO clientUser;
-GRANT EXECUTE ON InsertMeasurement TO clientUser;
-GO
-
--- ========================
--- 6. Permissions: serverUser
--- ========================
-GRANT SELECT, INSERT, DELETE ON Measurement TO serverUser;
-GRANT SELECT, INSERT ON Warning TO serverUser;
-GRANT SELECT, INSERT ON MeasurementCategory TO serverUser;
-GRANT SELECT ON Computer, Category TO serverUser;
-GRANT SELECT ON Category TO serverUser;
-GO
-
--- ========================
--- 7. Triggers 
+-- Triggers 
 -- ========================
 
 -- to high cpu usage
@@ -211,7 +189,7 @@ GO
 
 
 -- ========================
--- 8. Stored Procedures
+-- Stored Procedures
 -- ========================
 
 -- Insert new measurement with validation
@@ -222,8 +200,6 @@ CREATE PROCEDURE InsertMeasurement
     @ramTotal INT,
     @diskUsed FLOAT,
     @diskTotal FLOAT,
-    @netRx FLOAT,
-    @netTx FLOAT,
     @uptime INT
 AS
 BEGIN
@@ -231,8 +207,8 @@ BEGIN
         IF @cpuUsage > 100 OR @cpuUsage < 0
             THROW 50001, 'Invalid CPU value', 1;
 
-        INSERT INTO Measurement (computerId, cpuUsagePercent, ramUsedMB, ramTotalMB, diskUsedGB, diskTotalGB, networkReceivedMB, networkSentMB, uptimeMinutes)
-        VALUES (@computerId, @cpuUsage, @ramUsed, @ramTotal, @diskUsed, @diskTotal, @netRx, @netTx, @uptime);
+        INSERT INTO Measurement (computerId, cpuUsagePercent, ramUsedMB, ramTotalMB, diskUsedGB, diskTotalGB, uptimeMinutes)
+        VALUES (@computerId, @cpuUsage, @ramUsed, @ramTotal, @diskUsed, @diskTotal, @uptime);
     END TRY
     BEGIN CATCH
         PRINT ERROR_MESSAGE();
@@ -265,7 +241,7 @@ END;
 GO
 
 -- ========================
--- 9. Views
+-- Views
 -- ========================
 
 -- Average CPU usage per computer
@@ -295,7 +271,28 @@ GROUP BY severityLevel;
 GO
 
 -- ========================
--- 10. Inserts
+-- Permissions: clientUser
+-- ========================
+GRANT SELECT,  INSERT, UPDATE ON Computer TO clientUser;
+GRANT INSERT ON Measurement TO clientUser;
+GRANT SELECT ON Category TO clientUser;
+GRANT INSERT ON MeasurementCategory TO clientUser;
+GRANT EXECUTE ON InsertMeasurement TO clientUser;
+GO
+
+-- ========================
+--  Permissions: serverUser
+-- ========================
+GRANT SELECT, INSERT, DELETE ON Measurement TO serverUser;
+GRANT SELECT, INSERT ON Warning TO serverUser;
+GRANT SELECT, INSERT ON MeasurementCategory TO serverUser;
+GRANT SELECT ON Computer TO serverUser;
+GRANT SELECT ON Category TO serverUser;
+GO
+
+
+-- ========================
+-- Inserts
 -- ========================
 
 -- Categories

@@ -51,11 +51,6 @@ try {
     $diskUsedGB = [math]::Round(($disk.Size - $disk.FreeSpace) / 1GB, 2)
     $diskTotalGB = [math]::Round($disk.Size / 1GB, 2)
 
-    # Network
-    $netStats = Get-NetAdapterStatistics
-    $rx = [math]::Round(($netStats | Measure-Object -Sum ReceivedBytes).Sum / 1MB, 2)
-    $tx = [math]::Round(($netStats | Measure-Object -Sum SentBytes).Sum / 1MB, 2)
-
     # IP
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
         Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -notlike "169.*" } |
@@ -100,8 +95,6 @@ EXEC InsertMeasurement
     @ramTotal = $ramTotal,
     @diskUsed = $diskUsedGB,
     @diskTotal = $diskTotalGB,
-    @netRx = $rx,
-    @netTx = $tx,
     @uptime = $uptimeMinutes;
 "@
 
