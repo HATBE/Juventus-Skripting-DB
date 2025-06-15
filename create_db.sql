@@ -94,11 +94,11 @@ GO
 -- ========================
 -- 5. Permissions: clientUser
 -- ========================
-GRANT SELECT ON Computer TO clientUser;
+GRANT SELECT,  INSERT, UPDATE ON Computer TO clientUser;
 GRANT INSERT ON Measurement TO clientUser;
 GRANT SELECT ON Category TO clientUser;
 GRANT INSERT ON MeasurementCategory TO clientUser;
--- No DELETE or UPDATE
+GRANT EXECUTE ON InsertMeasurement TO clientUser;
 GO
 
 -- ========================
@@ -114,17 +114,101 @@ GO
 -- ========================
 -- 7. Triggers 
 -- ========================
+
+-- to high cpu usage
+DROP TRIGGER IF EXISTS trg_AutoWarningHighCPU;
+GO
+
 CREATE TRIGGER trg_AutoWarningHighCPU
 ON Measurement
 AFTER INSERT
 AS
 BEGIN
+    -- Insert warning
     INSERT INTO Warning (measurementId, type, description, severityLevel)
-    SELECT i.measurementId, 'HighCPU', 'CPU usage > 90%', 'High'
+    SELECT i.measurementId, 'HighCPU', 'CPU usage > 80%', 'High'
     FROM inserted i
-    WHERE i.cpuUsagePercent > 90;
-END
+    WHERE i.cpuUsagePercent > 80;
+
+    -- Link category
+    INSERT INTO MeasurementCategory (measurementId, categoryId)
+    SELECT i.measurementId, c.categoryId
+    FROM inserted i
+    JOIN Category c ON c.name = 'HighCPU'
+    WHERE i.cpuUsagePercent > 80;
+END;
 GO
+
+-- to high ram usage
+DROP TRIGGER IF EXISTS trg_AutoWarningHighRAM;
+GO
+
+CREATE TRIGGER trg_AutoWarningHighRAM
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    -- Insert warning
+    INSERT INTO Warning (measurementId, type, description, severityLevel)
+    SELECT i.measurementId, 'HighRAM', 'RAM usage > 80%', 'High'
+    FROM inserted i
+    WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
+
+    -- Link category
+    INSERT INTO MeasurementCategory (measurementId, categoryId)
+    SELECT i.measurementId, c.categoryId
+    FROM inserted i
+    JOIN Category c ON c.name = 'HighRAM'
+    WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
+END;
+GO
+
+
+-- to high disk usage
+DROP TRIGGER IF EXISTS trg_AutoWarningLowDisk;
+GO
+
+CREATE TRIGGER trg_AutoWarningLowDisk
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    -- Warning
+    INSERT INTO Warning (measurementId, type, description, severityLevel)
+    SELECT i.measurementId, 'LowDisk', 'Disk usage > 90%', 'High'
+    FROM inserted i
+    WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
+
+    -- Category
+    INSERT INTO MeasurementCategory (measurementId, categoryId)
+    SELECT i.measurementId, c.categoryId
+    FROM inserted i
+    JOIN Category c ON c.name = 'LowDisk'
+    WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
+END;
+GO
+
+--- needs to stay at end, healthy tag
+DROP TRIGGER IF EXISTS trg_AutoHealthyFlag;
+GO
+
+CREATE TRIGGER trg_AutoHealthyFlag
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    -- Assign "Healthy" tag if no warning for this measurement
+    INSERT INTO MeasurementCategory (measurementId, categoryId)
+    SELECT i.measurementId, c.categoryId
+    FROM inserted i
+    CROSS JOIN Category c
+    WHERE c.name = 'Healthy'
+      AND NOT EXISTS (
+          SELECT 1 FROM Warning w WHERE w.measurementId = i.measurementId
+      );
+END;
+GO
+
 
 -- ========================
 -- 8. Stored Procedures
@@ -209,3 +293,15 @@ SELECT severityLevel, COUNT(*) AS totalWarnings
 FROM Warning
 GROUP BY severityLevel;
 GO
+
+-- ========================
+-- 10. Inserts
+-- ========================
+
+-- Categories
+
+INSERT INTO Category (name) VALUES
+('HighCPU'),
+('LowRAM'),
+('LowDisk'),
+('Healthy')
