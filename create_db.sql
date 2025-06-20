@@ -1,5 +1,5 @@
 -- ========================
--- Create Database if Not Exists
+-- create database if it does not exists
 -- ========================
 IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'MonitoringDB')
 BEGIN
@@ -11,7 +11,7 @@ USE MonitoringDB;
 GO
 
 -- ========================
--- Drop Users and Logins if They Exist (for clean re-run)
+-- drop users and logins if they exist  and then create new ones
 -- ========================
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'clientUser')
     DROP USER clientUser;
@@ -25,9 +25,6 @@ IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
     DROP LOGIN serverUser;
 GO
 
--- ========================
--- Create Users and Logins
--- ========================
 CREATE LOGIN clientUser WITH PASSWORD = 'Client123!';
 CREATE USER clientUser FOR LOGIN clientUser;
 
@@ -36,8 +33,9 @@ CREATE USER serverUser FOR LOGIN serverUser;
 GO
 
 -- ========================
--- Create Tables
+-- create tables
 -- ========================
+
 CREATE TABLE Computer (
     computerId INT PRIMARY KEY IDENTITY(1,1),
     hostname VARCHAR(255) NOT NULL,
@@ -90,7 +88,7 @@ CREATE TABLE MeasurementCategory (
 GO
 
 -- ========================
--- Triggers 
+-- create triggers
 -- ========================
 
 -- to high cpu usage
@@ -108,7 +106,7 @@ BEGIN
     FROM inserted i
     WHERE i.cpuUsagePercent > 80;
 
-    -- Link category
+    -- Link category t owarning
     INSERT INTO MeasurementCategory (measurementId, categoryId)
     SELECT i.measurementId, c.categoryId
     FROM inserted i
@@ -132,7 +130,7 @@ BEGIN
     FROM inserted i
     WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
 
-    -- Link category
+    -- Link category to warning
     INSERT INTO MeasurementCategory (measurementId, categoryId)
     SELECT i.measurementId, c.categoryId
     FROM inserted i
@@ -151,13 +149,13 @@ ON Measurement
 AFTER INSERT
 AS
 BEGIN
-    -- Warning
+    -- insert warning
     INSERT INTO Warning (measurementId, type, description, severityLevel)
     SELECT i.measurementId, 'LowDisk', 'Disk usage > 90%', 'High'
     FROM inserted i
     WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
 
-    -- Category
+    -- link category to warning
     INSERT INTO MeasurementCategory (measurementId, categoryId)
     SELECT i.measurementId, c.categoryId
     FROM inserted i
@@ -166,7 +164,7 @@ BEGIN
 END;
 GO
 
---- needs to stay at end, healthy tag
+--- needs to stay at end, healthy tag (if no other tag isset)
 DROP TRIGGER IF EXISTS trg_AutoHealthyFlag;
 GO
 
@@ -189,7 +187,7 @@ GO
 
 
 -- ========================
--- Stored Procedures
+-- stored procedures
 -- ========================
 
 -- Insert new measurement with validation
@@ -204,30 +202,46 @@ CREATE PROCEDURE InsertMeasurement
 AS
 BEGIN
     BEGIN TRY
-        IF @cpuUsage > 100 OR @cpuUsage < 0
-            THROW 50001, 'Invalid CPU value', 1;
+        BEGIN TRANSACTION;
 
-        INSERT INTO Measurement (computerId, cpuUsagePercent, ramUsedMB, ramTotalMB, diskUsedGB, diskTotalGB, uptimeMinutes)
-        VALUES (@computerId, @cpuUsage, @ramUsed, @ramTotal, @diskUsed, @diskTotal, @uptime);
+        -- Validierung
+        IF @cpuUsage < 0 OR @cpuUsage > 100
+            THROW 50001, 'Ungültiger CPU-Wert: muss zwischen 0 und 100 liegen.', 1;
+
+        -- Messung einfügen
+        INSERT INTO Measurement (
+            computerId,
+            cpuUsagePercent,
+            ramUsedMB,
+            ramTotalMB,
+            diskUsedGB,
+            diskTotalGB,
+            uptimeMinutes
+        )
+        VALUES (
+            @computerId,
+            @cpuUsage,
+            @ramUsed,
+            @ramTotal,
+            @diskUsed,
+            @diskTotal,
+            @uptime
+        );
+
+        COMMIT;
     END TRY
     BEGIN CATCH
-        PRINT ERROR_MESSAGE();
+        IF @@TRANCOUNT > 0
+            ROLLBACK;
+
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        THROW 50002, @ErrorMessage, 1;
     END CATCH
 END;
 GO
 
--- Archive old measurements
-/*CREATE PROCEDURE ArchiveOldMeasurements
-    @daysOld INT
-AS
-BEGIN
-    DELETE FROM Measurement
-    WHERE timestamp < DATEADD(DAY, -@daysOld, GETDATE());
-END;
-GO*/
-
--- Generate warnings (manual batch)
-CREATE PROCEDURE GenerateWarnings
+-- generate warnings (if you want to create a manual one)
+CREATE PROCEDURE InsertWarnings
 AS
 BEGIN
     INSERT INTO Warning (measurementId, type, description, severityLevel)
@@ -240,11 +254,71 @@ BEGIN
 END;
 GO
 
+-- system stats
+CREATE PROCEDURE GetSystemStats
+AS
+BEGIN
+    BEGIN TRY
+        -- last 24h
+        SELECT 
+            c.hostname,
+            COUNT(*) AS totalMeasurements,
+            AVG(m.cpuUsagePercent) AS avgCpu,
+            MAX(m.cpuUsagePercent) AS maxCpu,
+            MIN(m.cpuUsagePercent) AS minCpu
+        FROM Measurement m
+        JOIN Computer c ON c.computerId = m.computerId
+        WHERE m.timestamp > DATEADD(HOUR, -24, GETDATE())
+        GROUP BY c.hostname;
+    END TRY
+    BEGIN CATCH
+        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
+        THROW 50012, @Err, 1;
+    END CATCH
+END;
+GO
+
+-- get all warnings for a computer
+CREATE PROCEDURE GetActiveWarningsForComputer
+    @hostname VARCHAR(255)
+AS
+BEGIN
+    BEGIN TRY
+        -- check if the host exist
+        IF NOT EXISTS (SELECT 1 FROM Computer WHERE hostname = @hostname)
+            THROW 50020, 'Computername nicht gefunden.', 1;
+
+        -- get the current warning
+        DECLARE @measurementId INT;
+
+        SELECT TOP 1 @measurementId = m.measurementId
+        FROM Measurement m
+        JOIN Computer c ON c.computerId = m.computerId
+        WHERE c.hostname = @hostname
+        ORDER BY m.timestamp DESC;
+
+        -- get last warning
+        SELECT 
+            w.type,
+            w.description,
+            w.severityLevel,
+            m.timestamp
+        FROM Warning w
+        JOIN Measurement m ON m.measurementId = w.measurementId
+        WHERE w.measurementId = @measurementId;
+    END TRY
+    BEGIN CATCH
+        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
+        THROW 50021, @Err, 1;
+    END CATCH
+END;
+GO
+
 -- ========================
--- Views
+-- cerate views
 -- ========================
 
--- Average CPU usage per computer
+-- average CPU usage per computer
 CREATE VIEW vw_AvgCpuPerComputer AS
 SELECT c.hostname, AVG(m.cpuUsagePercent) AS avgCpu
 FROM Measurement m
@@ -252,7 +326,7 @@ JOIN Computer c ON c.computerId = m.computerId
 GROUP BY c.hostname;
 GO
 
--- Latest measurements per computer
+-- latest measurements per computer
 CREATE VIEW vw_LatestMeasurements AS
 SELECT *
 FROM Measurement m
@@ -263,7 +337,7 @@ WHERE timestamp = (
 );
 GO
 
--- Warning statistics
+-- warning statistics
 CREATE VIEW vw_WarningStats AS
 SELECT severityLevel, COUNT(*) AS totalWarnings
 FROM Warning
@@ -271,8 +345,20 @@ GROUP BY severityLevel;
 GO
 
 -- ========================
--- Permissions: clientUser
+-- Indexes
 -- ========================
+
+CREATE INDEX IX_Measurement_Timestamp ON Measurement (timestamp);
+CREATE INDEX IX_Measurement_ComputerId ON Measurement (computerId);
+CREATE INDEX IX_Warning_MeasurementId ON Warning (measurementId);
+CREATE INDEX IX_Computer_Hostname ON Computer (hostname);
+CREATE INDEX IX_MeasurementCategory_CategoryId ON MeasurementCategory (categoryId);
+
+-- ========================
+-- permissions
+-- ========================
+
+-- client user
 GRANT SELECT,  INSERT, UPDATE ON Computer TO clientUser;
 GRANT INSERT ON Measurement TO clientUser;
 GRANT SELECT ON Category TO clientUser;
@@ -280,9 +366,7 @@ GRANT INSERT ON MeasurementCategory TO clientUser;
 GRANT EXECUTE ON InsertMeasurement TO clientUser;
 GO
 
--- ========================
---  Permissions: serverUser
--- ========================
+-- server user
 GRANT SELECT, INSERT, DELETE ON Measurement TO serverUser;
 GRANT SELECT, INSERT ON Warning TO serverUser;
 GRANT SELECT, INSERT ON MeasurementCategory TO serverUser;
@@ -290,13 +374,11 @@ GRANT SELECT ON Computer TO serverUser;
 GRANT SELECT ON Category TO serverUser;
 GO
 
-
 -- ========================
--- Inserts
+-- Fill db with data
 -- ========================
 
 -- Categories
-
 INSERT INTO Category (name) VALUES
 ('HighCPU'),
 ('LowRAM'),

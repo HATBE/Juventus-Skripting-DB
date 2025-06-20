@@ -40,25 +40,38 @@ try {
     $cpu = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
         Select-Object -ExpandProperty PercentProcessorTime
 
+    Log "CPU: $cpu%"
+
     # OS Info
     $osInfo = Get-CimInstance Win32_OperatingSystem | Select-Object -First 1
     $osName = $osInfo.Caption
+
+    Log "OS: $osName"
+
     $ramUsed = [math]::Round(($osInfo.TotalVisibleMemorySize - $osInfo.FreePhysicalMemory) / 1024)
     $ramTotal = [math]::Round($osInfo.TotalVisibleMemorySize / 1024)
+
+    Log "RAM: $ramUsed / $ramTotal MB"
 
     # Disk
     $disk = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -First 1
     $diskUsedGB = [math]::Round(($disk.Size - $disk.FreeSpace) / 1GB, 2)
     $diskTotalGB = [math]::Round($disk.Size / 1GB, 2)
 
+    Log "RAM: $diskUsedGB / $diskTotalGB GB"
+
     # IP
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
         Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -notlike "169.*" } |
         Select-Object -First 1 -ExpandProperty IPAddress)
 
+    Log "IP: $ip"
+
     # Uptime
     $lastBoot = $osInfo.LastBootUpTime
     $uptimeMinutes = [math]::Round((New-TimeSpan -Start $lastBoot).TotalMinutes)
+
+    Log "Uptime: $uptimeMinutes minutes"
 
 } catch {
     Log "Error collecting system data: $_"
