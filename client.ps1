@@ -1,120 +1,135 @@
 <#
 .SYNOPSIS
-    System Monitoring Client Script
+    Monitoring CLient script to get a systems specs, and data
 
 .DESCRIPTION
-    Collects system metrics and inserts them into a central SQL Server database.
+   The script collects metrics (CPU, RAM, disk, uptime, IP) and sends them to a central SQL Server database.
 
 .PARAMETER dbServer
-    The hostname or IP of the SQL Server.
+    SQL Server instance name/IP (default: DESKTOP-6PPL6UD\SQLEXPRESS)
+
+.PARAMETER dbUser
+    The username of the db server user
+
+.PARAMETER dbPass
+    The password of the db server user
+
+.PARAMETER dbName
+    The name of the db
 
 .PARAMETER computerName
-    Override the detected computer name (optional).
+    Optional: Overwrites the host name determined
 
 .PARAMETER silent
-    Runs script without console output.
+    Switches off console output
 
 .EXAMPLE
-    .\client.ps1 -dbServer "127.0.0.1\SQLEXPRESS" -silent
+    .\client.ps1 -dbServer "192.168.1.10\SQLEXPRESS" -silent
 #>
 
 param (
-    [string]$dbServer = "127.0.0.1\SQLEXPRESS",
+    [string]$dbServer = "DESKTOP-6PPL6UD\SQLEXPRESS",
     [string]$computerName = $env:COMPUTERNAME,
+    [string]$dbUser,
+    [string]$dbPass,
+    [string]$dbName = "MonitoringDB",
     [switch]$silent
 )
 
 function Log {
-    param ([string]$msg)
-    if (-not $silent) { Write-Host "$(Get-Date -Format "u") $msg" }
+    param([string]$msg)
+    if (-not $silent) {
+        Write-Host "$(Get-Date -Format "u") $msg"
+    }
 }
 
-# Load SQL Server module
-Import-Module SqlServer -ErrorAction SilentlyContinue
+function CheckParams {
+    if (-not $dbUser -or -not $dbPass) {
+        Log "ERROR: Required parameters -dbUser and -dbPass are missing."
+        exit 99
+    }
+}
 
-# Collect system data
-try {
-    Log "Collecting system metrics..."
+function CheckAdmin {
+    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {        
+        Log "WARNING: Script must be executed as admin"
+        exit 1
+    }
+}
 
-    # CPU
+function Get-SystemData {
+    Log "Start collecting..."
+
+    $os = Get-CimInstance Win32_OperatingSystem
     $cpu = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" |
         Select-Object -ExpandProperty PercentProcessorTime
-
-    Log "CPU: $cpu%"
-
-    # OS Info
-    $osInfo = Get-CimInstance Win32_OperatingSystem | Select-Object -First 1
-    $osName = $osInfo.Caption
-
-    Log "OS: $osName"
-
-    $ramUsed = [math]::Round(($osInfo.TotalVisibleMemorySize - $osInfo.FreePhysicalMemory) / 1024)
-    $ramTotal = [math]::Round($osInfo.TotalVisibleMemorySize / 1024)
-
-    Log "RAM: $ramUsed / $ramTotal MB"
-
-    # Disk
+    $ramUsed = [math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1024)
+    $ramTotal = [math]::Round($os.TotalVisibleMemorySize / 1024)
     $disk = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -First 1
-    $diskUsedGB = [math]::Round(($disk.Size - $disk.FreeSpace) / 1GB, 2)
-    $diskTotalGB = [math]::Round($disk.Size / 1GB, 2)
-
-    Log "RAM: $diskUsedGB / $diskTotalGB GB"
-
-    # IP
+    $diskUsed = [math]::Round(($disk.Size - $disk.FreeSpace) / 1GB, 2)
+    $diskTotal = [math]::Round($disk.Size / 1GB, 2)
+    $uptime = [math]::Round((New-TimeSpan -Start $os.LastBootUpTime).TotalMinutes)
     $ip = (Get-NetIPAddress -AddressFamily IPv4 |
         Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -notlike "169.*" } |
         Select-Object -First 1 -ExpandProperty IPAddress)
 
-    Log "IP: $ip"
-
-    # Uptime
-    $lastBoot = $osInfo.LastBootUpTime
-    $uptimeMinutes = [math]::Round((New-TimeSpan -Start $lastBoot).TotalMinutes)
-
-    Log "Uptime: $uptimeMinutes minutes"
-
-} catch {
-    Log "Error collecting system data: $_"
-    exit 1
+    return @{
+        OS         = $os.Caption
+        CPU        = $cpu
+        RAMUsed    = $ramUsed
+        RAMTotal   = $ramTotal
+        DiskUsed   = $diskUsed
+        DiskTotal  = $diskTotal
+        IP         = $ip
+        Uptime     = $uptime
+    }
 }
 
-# Connect and insert
-try {
-    Log "Connecting to database..."
+function Write-ToDatabase($data) {
+    Log "Start db connection..."
 
-    $connectionString = "Server=localhost\SQLEXPRESS;Database=MonitoringDB;User Id=clientUser;Password=Client123!;Encrypt=False;TrustServerCertificate=True"
+    $connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
 
-    # Ensure computer is registered & update last contact
     $registerSql = @"
 IF EXISTS (SELECT 1 FROM Computer WHERE hostname = '$computerName')
-BEGIN
     UPDATE Computer SET lastContact = GETDATE() WHERE hostname = '$computerName'
-END
 ELSE
-BEGIN
     INSERT INTO Computer (hostname, ipAddress, operatingSystem, lastContact)
-    VALUES ('$computerName', '$ip', '$osName', GETDATE())
-END
+    VALUES ('$computerName', '$($data.IP)', '$($data.OS)', GETDATE())
 "@
-    Invoke-Sqlcmd -ConnectionString $connectionString -Query $registerSql
 
-    # Insert measurement
-    $query = @"
+    $insertSql = @"
 DECLARE @compId INT = (SELECT computerId FROM Computer WHERE hostname = '$computerName');
 EXEC InsertMeasurement 
     @computerId = @compId,
-    @cpuUsage = $cpu,
-    @ramUsed = $ramUsed,
-    @ramTotal = $ramTotal,
-    @diskUsed = $diskUsedGB,
-    @diskTotal = $diskTotalGB,
-    @uptime = $uptimeMinutes;
+    @cpuUsage = $($data.CPU),
+    @ramUsed = $($data.RAMUsed),
+    @ramTotal = $($data.RAMTotal),
+    @diskUsed = $($data.DiskUsed),
+    @diskTotal = $($data.DiskTotal),
+    @uptime = $($data.Uptime);
 "@
 
-    Invoke-Sqlcmd -ConnectionString $connectionString -Query $query
-    Log "Inserted data for $computerName"
+    try {
+        Invoke-Sqlcmd -ConnectionString $connectionString -Query $registerSql
+        Invoke-Sqlcmd -ConnectionString $connectionString -Query $insertSql
+        Log "Successfully sent data."
+    } catch {
+        Log "ERROR SQL: $_"
+        exit 2
+    }
+}
 
+# ====== Script ======
+Import-Module SqlServer -ErrorAction SilentlyContinue
+
+CheckAdmin
+CheckParams
+
+try {
+    $data = Get-SystemData
+    Write-ToDatabase -data $data
 } catch {
-    Log "Error: SQL insert failed: $_"
-    exit 2
+    Log "ERROR: while collectiong data: $_"
+    exit 1
 }
