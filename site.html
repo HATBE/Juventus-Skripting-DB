@@ -3,22 +3,160 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="60" />
     <title>Monitoring</title>
 
+ <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link
-      href="https://unpkg.com/tailwindcss@^1.0/dist/tailwind.min.css"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
-    <style></style>
+    <style>
+      body {
+        background-color: var(--bs-dark);
+        color: var(--bs-light);
+      }
+
+      table tr:last-child, table tr:last-child td, table tr:last-child, th {
+        border-bottom: none;
+      }
+
+      .page-container {
+        max-width: 1920px;
+        width: 100%;
+        padding-right: var(--bs-gutter-x, 0.75rem);
+        padding-left: var(--bs-gutter-x, 0.75rem);
+        margin-right: auto;
+        margin-left: auto;
+      }
+    </style>
   </head>
   <body>
-    <header></header>
-    <main></main>
+    <header>
+      <h1 class="text-center my-3">Monitoring Dashboard</h1>
+      <p class="text-end text-muted">Stand: <span id="timestamp"></span></p>
+    </header>
+    <main class="page-container ">
+     <div class="row">
+        <div class="col-2 ">
+          <section class="row my-2 d-flex flex-column">
+            <div class="card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow">
+              <h4>Gesamt PCs</h4>
+              <h5>120</h5>
+            </div>
+
+            <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow" >
+              <h4>Warnungen Heute</h4>
+              <h5>2</h5>
+            </div>
+
+            <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow">
+              <h4>Ø CPU-Auslastung</h4>
+              <h5>11%</h5>
+            </div>
+
+            <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow" >
+              <h4>Ø RAM-Auslastung</h4>
+              <h5>30%</h5>
+            </div>
+          </section>
+        </div>
+      
+        <div class="col-10">
+          <section class="my-4 row">
+            <div class="col-6">
+              <h3>Aktuelle Warnungen</h3>
+              <table class="table table-danger rounded overflow-hidden">
+                <thead class="table-danger">
+                  <tr>
+                    <th>Hostname</th>
+                    <th>Typ</th>
+                    <th>Beschreibung</th>
+                    <th>Schweregrad</th>
+                    <th>Zeitstempel</th>
+                  </tr>
+                </thead>
+                <tbody id="warningsTable">
+                  <tr><td>google.com</td><td>LOW RAM</td><td>FUUUUCK</td><td>HIGH</td><td>17.7.2002 19:03:55</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="col-6">
+              <h3>Neuste Messungen</h3>
+              <table class="table table-striped rounded overflow-hidden"">
+                <thead class="table-primary">
+                  <tr>
+                    <th>Hostname</th>
+                    <th>CPU</th>
+                    <th>RAM</th>
+                    <th>Disk</th>
+                    <th>Uptime</th>
+                    <th>Zeitstempel</th>
+                  </tr>
+                </thead>
+                <tbody id="measurementsTable">
+                  <tr><td>google.com</td><td>10%</td><td>20%</td><td>40%</td><td>100 Stunden</td><td>17.7.2002 19:03:55</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="my-4 row">
+            <div class="col-3 offset-3">
+              <h4>Warnungen nach Typ</h4>
+              <canvas id="warningsChart"></canvas>
+            </div>
+            <div class="col-3">
+              <h4>CPU-Verlauf</h4>
+              <canvas id="cpuChart"></canvas>
+            </div>
+
+          </section>
+        </div>
+      </div>
+    </main>
     <footer></footer>
 
     <script src="./data.js"></script>
     <script>
       console.log(data);
+
+
+       // Set timestamp
+      const now = new Date();
+      document.getElementById("timestamp").textContent =
+      now.toLocaleString("de-DE");
+
+      // Platzhalterdaten für Charts
+      new Chart(document.getElementById("warningsChart"), {
+        type: "pie",
+        data: {
+          labels: ["HighCPU", "HighRAM", "LowDisk"],
+          datasets: [
+            {
+              data: [5, 3, 2],
+              backgroundColor: ["#dc3545", "#ffc107", "#0d6efd"],
+            },
+          ],
+        },
+      });
+
+      new Chart(document.getElementById("cpuChart"), {
+        type: "line",
+        data: {
+          labels: ["10:00", "10:05", "10:10", "10:15", "10:20"],
+          datasets: [
+            {
+              label: "CPU % (Host X)",
+              data: [35, 42, 55, 48, 60],
+              fill: false,
+              borderColor: "rgb(75, 192, 192)",
+              tension: 0.1,
+            },
+          ],
+        },
+      });
+
     </script>
   </body>
 </html>
