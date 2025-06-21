@@ -88,105 +88,6 @@ CREATE TABLE MeasurementCategory (
 GO
 
 -- ========================
--- create triggers
--- ========================
-
--- to high cpu usage
-DROP TRIGGER IF EXISTS trg_AutoWarningHighCPU;
-GO
-
-CREATE TRIGGER trg_AutoWarningHighCPU
-ON Measurement
-AFTER INSERT
-AS
-BEGIN
-    -- Insert warning
-    INSERT INTO Warning (measurementId, type, description, severityLevel)
-    SELECT i.measurementId, 'HighCPU', 'CPU usage > 80%', 'High'
-    FROM inserted i
-    WHERE i.cpuUsagePercent > 80;
-
-    -- Link category t owarning
-    INSERT INTO MeasurementCategory (measurementId, categoryId)
-    SELECT i.measurementId, c.categoryId
-    FROM inserted i
-    JOIN Category c ON c.name = 'HighCPU'
-    WHERE i.cpuUsagePercent > 80;
-END;
-GO
-
--- to high ram usage
-DROP TRIGGER IF EXISTS trg_AutoWarningHighRAM;
-GO
-
-CREATE TRIGGER trg_AutoWarningHighRAM
-ON Measurement
-AFTER INSERT
-AS
-BEGIN
-    -- Insert warning
-    INSERT INTO Warning (measurementId, type, description, severityLevel)
-    SELECT i.measurementId, 'HighRAM', 'RAM usage > 80%', 'High'
-    FROM inserted i
-    WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
-
-    -- Link category to warning
-    INSERT INTO MeasurementCategory (measurementId, categoryId)
-    SELECT i.measurementId, c.categoryId
-    FROM inserted i
-    JOIN Category c ON c.name = 'HighRAM'
-    WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
-END;
-GO
-
-
--- to high disk usage
-DROP TRIGGER IF EXISTS trg_AutoWarningLowDisk;
-GO
-
-CREATE TRIGGER trg_AutoWarningLowDisk
-ON Measurement
-AFTER INSERT
-AS
-BEGIN
-    -- insert warning
-    INSERT INTO Warning (measurementId, type, description, severityLevel)
-    SELECT i.measurementId, 'LowDisk', 'Disk usage > 90%', 'High'
-    FROM inserted i
-    WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
-
-    -- link category to warning
-    INSERT INTO MeasurementCategory (measurementId, categoryId)
-    SELECT i.measurementId, c.categoryId
-    FROM inserted i
-    JOIN Category c ON c.name = 'LowDisk'
-    WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
-END;
-GO
-
---- needs to stay at end, healthy tag (if no other tag isset)
-DROP TRIGGER IF EXISTS trg_AutoHealthyFlag;
-GO
-
-CREATE TRIGGER trg_AutoHealthyFlag
-ON Measurement
-AFTER INSERT
-AS
-BEGIN
-    -- Assign "Healthy" tag if no warning for this measurement
-    INSERT INTO MeasurementCategory (measurementId, categoryId)
-    SELECT i.measurementId, c.categoryId
-    FROM inserted i
-    CROSS JOIN Category c
-    WHERE c.name = 'Healthy'
-      AND NOT EXISTS (
-          SELECT 1 FROM Warning w WHERE w.measurementId = i.measurementId
-      );
-END;
-GO
-
-
--- ========================
 -- stored procedures
 -- ========================
 
@@ -206,7 +107,7 @@ BEGIN
 
         -- Validierung
         IF @cpuUsage < 0 OR @cpuUsage > 100
-            THROW 50001, 'Ungültiger CPU-Wert: muss zwischen 0 und 100 liegen.', 1;
+            THROW 50001, 'Invalid  CPU Value: must be inbetween of  0 and 100.', 1;
 
         -- Messung einfügen
         INSERT INTO Measurement (
@@ -240,21 +141,39 @@ BEGIN
 END;
 GO
 
--- generate warnings (if you want to create a manual one)
-CREATE PROCEDURE InsertWarnings
+-- generate warnings (used by triggers)
+CREATE PROCEDURE InsertWarningWithCategory
+    @measurementId INT,
+    @type VARCHAR(50),
+    @description TEXT,
+    @severityLevel VARCHAR(20)
 AS
 BEGIN
-    INSERT INTO Warning (measurementId, type, description, severityLevel)
-    SELECT m.measurementId, 'High CPU', 'CPU usage > 90%', 'High'
-    FROM Measurement m
-    WHERE m.cpuUsagePercent > 90
-      AND NOT EXISTS (
-          SELECT 1 FROM Warning w WHERE w.measurementId = m.measurementId AND w.type = 'High CPU'
-      );
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- Insert into Warning table
+        INSERT INTO Warning (measurementId, type, description, severityLevel)
+        VALUES (@measurementId, @type, @description, @severityLevel);
+
+        -- Link to category
+        INSERT INTO MeasurementCategory (measurementId, categoryId)
+        SELECT @measurementId, categoryId
+        FROM Category
+        WHERE name = @type;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+
+        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
+        THROW 70001, @Err, 1;
+    END CATCH
 END;
 GO
 
--- system stats
+-- get system stats
 CREATE PROCEDURE GetSystemStats
 AS
 BEGIN
@@ -314,35 +233,189 @@ BEGIN
 END;
 GO
 
+-- insert a new computer or update last contact if it already exists
+CREATE PROCEDURE InsertComputer
+    @hostname VARCHAR(255),
+    @ipAddress VARCHAR(50),
+    @operatingSystem VARCHAR(100)
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        IF EXISTS (SELECT 1 FROM Computer WHERE hostname = @hostname)
+        BEGIN
+            -- Update lastContact if the computer already exists
+            UPDATE Computer
+            SET lastContact = GETDATE()
+            WHERE hostname = @hostname;
+        END
+        ELSE
+        BEGIN
+            -- Insert new computer
+            INSERT INTO Computer (hostname, ipAddress, operatingSystem, lastContact)
+            VALUES (@hostname, @ipAddress, @operatingSystem, GETDATE());
+        END
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK;
+
+        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
+        THROW 60001, @Err, 1;
+    END CATCH
+END;
+GO
+
+-- ========================
+-- create triggers
+-- ========================
+
+-- to high cpu usage
+DROP TRIGGER IF EXISTS trg_AutoWarningHighCPU;
+GO
+
+CREATE TRIGGER trg_AutoWarningHighCPU
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @measurementId INT;
+
+    SELECT @measurementId = i.measurementId
+    FROM inserted i
+    WHERE i.cpuUsagePercent > 80;
+
+    IF @measurementId IS NOT NULL
+    BEGIN
+        EXEC InsertWarningWithCategory
+            @measurementId = @measurementId,
+            @type = 'HighCPU',
+            @description = 'CPU usage > 80%',
+            @severityLevel = 'High';
+    END
+END;
+GO
+
+-- to high ram usage
+DROP TRIGGER IF EXISTS trg_AutoWarningHighRAM;
+GO
+
+CREATE TRIGGER trg_AutoWarningHighRAM
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @measurementId INT;
+
+    SELECT @measurementId = i.measurementId
+    FROM inserted i
+    WHERE (i.ramUsedMB * 100.0 / NULLIF(i.ramTotalMB, 0)) > 80;
+
+    IF @measurementId IS NOT NULL
+    BEGIN
+        EXEC InsertWarningWithCategory
+            @measurementId = @measurementId,
+            @type = 'HighRAM',
+            @description = 'RAM usage > 80%',
+            @severityLevel = 'High';
+    END
+END;
+GO
+
+
+-- to high disk usage
+DROP TRIGGER IF EXISTS trg_AutoWarningLowDisk;
+GO
+
+CREATE TRIGGER trg_AutoWarningLowDisk
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @measurementId INT;
+
+    SELECT @measurementId = i.measurementId
+    FROM inserted i
+    WHERE (i.diskUsedGB * 100.0 / NULLIF(i.diskTotalGB, 0)) > 90;
+
+    IF @measurementId IS NOT NULL
+    BEGIN
+        EXEC InsertWarningWithCategory
+            @measurementId = @measurementId,
+            @type = 'LowDisk',
+            @description = 'Disk usage > 90%',
+            @severityLevel = 'High';
+    END
+END;
+GO
+
+--- needs to stay at end, healthy tag (if no other tag isset)
+DROP TRIGGER IF EXISTS trg_AutoHealthyFlag;
+GO
+
+CREATE TRIGGER trg_AutoHealthyFlag
+ON Measurement
+AFTER INSERT
+AS
+BEGIN
+    -- Assign "Healthy" tag if no warning for this measurement
+    INSERT INTO MeasurementCategory (measurementId, categoryId)
+    SELECT i.measurementId, c.categoryId
+    FROM inserted i
+    CROSS JOIN Category c
+    WHERE c.name = 'Healthy'
+      AND NOT EXISTS (
+          SELECT 1 FROM Warning w WHERE w.measurementId = i.measurementId
+      );
+END;
+GO
+
 -- ========================
 -- cerate views
 -- ========================
 
--- average CPU usage per computer
-CREATE VIEW vw_AvgCpuPerComputer AS
-SELECT c.hostname, AVG(m.cpuUsagePercent) AS avgCpu
-FROM Measurement m
-JOIN Computer c ON c.computerId = m.computerId
-GROUP BY c.hostname;
+DROP VIEW IF EXISTS vw_DashboardSummary;
 GO
 
--- latest measurements per computer
-CREATE VIEW vw_LatestMeasurements AS
-SELECT *
-FROM Measurement m
-WHERE timestamp = (
-    SELECT MAX(m2.timestamp)
-    FROM Measurement m2
-    WHERE m2.computerId = m.computerId
-);
+CREATE VIEW vw_DashboardSummary AS
+SELECT
+    -- Total registered computers
+    (SELECT COUNT(*) FROM Computer) AS computerCount,
+
+    -- Average CPU usage today
+    (SELECT ROUND(ISNULL(AVG(cpuUsagePercent), 0), 0)
+     FROM Measurement
+     WHERE CAST(timestamp AS DATE) = CAST(GETDATE() AS DATE)
+    ) AS avgCpuToday,
+
+    -- Average RAM usage (%) today
+    (SELECT ROUND(ISNULL(AVG(CAST(ramUsedMB AS FLOAT) * 100.0 / NULLIF(ramTotalMB, 0)), 0), 0)
+     FROM Measurement
+     WHERE CAST(timestamp AS DATE) = CAST(GETDATE() AS DATE)
+    ) AS avgRamUsageToday,
+
+    -- Number of warnings today
+    (SELECT COUNT(*)
+     FROM Warning w
+     JOIN Measurement m ON m.measurementId = w.measurementId
+     WHERE CAST(m.timestamp AS DATE) = CAST(GETDATE() AS DATE)
+    ) AS warningsToday,
+
+    -- Average number of warnings per day over the last 7 days
+    (SELECT ROUND(ISNULL(AVG(warningCount), 0), 1)
+     FROM (
+         SELECT CAST(m.timestamp AS DATE) AS [day], COUNT(*) AS warningCount
+         FROM Warning w
+         JOIN Measurement m ON m.measurementId = w.measurementId
+         WHERE m.timestamp >= DATEADD(DAY, -7, GETDATE())
+         GROUP BY CAST(m.timestamp AS DATE)
+     ) AS dailyWarnings
+    ) AS avgWarningsLast7Days;
 GO
 
--- warning statistics
-CREATE VIEW vw_WarningStats AS
-SELECT severityLevel, COUNT(*) AS totalWarnings
-FROM Warning
-GROUP BY severityLevel;
-GO
 
 -- ========================
 -- Indexes
@@ -364,6 +437,7 @@ GRANT INSERT ON Measurement TO clientUser;
 GRANT SELECT ON Category TO clientUser;
 GRANT INSERT ON MeasurementCategory TO clientUser;
 GRANT EXECUTE ON InsertMeasurement TO clientUser;
+GRANT EXECUTE ON InsertComputer TO clientUser;
 GO
 
 -- server user
@@ -372,6 +446,8 @@ GRANT SELECT, INSERT ON Warning TO serverUser;
 GRANT SELECT, INSERT ON MeasurementCategory TO serverUser;
 GRANT SELECT ON Computer TO serverUser;
 GRANT SELECT ON Category TO serverUser;
+GRANT EXECUTE ON InsertComputer TO serverUser;
+GRANT SELECT ON vw_DashboardSummary TO serverUser;
 GO
 
 -- ========================

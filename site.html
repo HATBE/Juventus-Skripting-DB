@@ -42,22 +42,27 @@
           <section class="row my-2 d-flex flex-column">
             <div class="card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow">
               <h4>Gesamt PCs</h4>
-              <h5>120</h5>
+              <h5 id="computerCount"></h5>
             </div>
 
             <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow" >
               <h4>Warnungen Heute</h4>
-              <h5>2</h5>
+              <h5 id="warningsCount"></h5>
+            </div>
+
+            <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow" >
+              <h4>Ø Warnungen letzte 7 Tage</h4>
+              <h5 id="warningsCount7days"></h5>
             </div>
 
             <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow">
               <h4>Ø CPU-Auslastung</h4>
-              <h5>11%</h5>
+              <h5 id="avgCpuPercent"></h5>
             </div>
 
             <div class="mt-2 card text-light bg-dark d-flex flex-column text-center p-3 border-light shadow" >
               <h4>Ø RAM-Auslastung</h4>
-              <h5>30%</h5>
+              <h5 id="avgRamPercent"></h5>
             </div>
           </section>
         </div>
@@ -119,7 +124,17 @@
 
     <script src="./data.js"></script>
     <script>
-      console.log(data);
+      const avgCpuPercentEl = document.getElementById("avgCpuPercent");
+      const avgRamPercentEl = document.getElementById("avgRamPercent");
+      const computerCountEl = document.getElementById("computerCount");
+      const warningsCountEl = document.getElementById("warningsCount");
+      const warningsCount7daysEl = document.getElementById("warningsCount7days");
+
+      computerCountEl.textContent = data.summary.computerCount;
+      warningsCountEl.textContent = data.summary.warningsToday;
+      avgCpuPercentEl.textContent = data.summary.avgCpuToday + "%";
+      avgRamPercentEl.textContent = data.summary.avgRamUsageToday + "%";
+      warningsCount7daysEl.textContent = data.summary.avgWarningsLast7Days;
 
 
        // Set timestamp

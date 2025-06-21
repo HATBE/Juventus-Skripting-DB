@@ -85,19 +85,21 @@ function Get-SystemData {
     }
 }
 
-function Write-ToDatabase($data) {
+function InitConnection {
     Log "Start db connection..."
+    $Global:connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
+    Log "Connection string initialized."
+}
 
-    $connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
-
-    $registerSql = @"
-IF EXISTS (SELECT 1 FROM Computer WHERE hostname = '$computerName')
-    UPDATE Computer SET lastContact = GETDATE() WHERE hostname = '$computerName'
-ELSE
-    INSERT INTO Computer (hostname, ipAddress, operatingSystem, lastContact)
-    VALUES ('$computerName', '$($data.IP)', '$($data.OS)', GETDATE())
+function Write-ToDatabase($data) {
+    $registerComputerSql = @"
+EXEC InsertComputer
+    @hostname = '$computerName',
+    @ipAddress = '$($data.IP)',
+    @operatingSystem = '$($data.OS)';
 "@
 
+    # first get id of this computer, by hostname, then insert the data with the id (ik, unsecure, but who cares)
     $insertSql = @"
 DECLARE @compId INT = (SELECT computerId FROM Computer WHERE hostname = '$computerName');
 EXEC InsertMeasurement 
@@ -111,8 +113,8 @@ EXEC InsertMeasurement
 "@
 
     try {
-        Invoke-Sqlcmd -ConnectionString $connectionString -Query $registerSql
-        Invoke-Sqlcmd -ConnectionString $connectionString -Query $insertSql
+        Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $registerComputerSql
+        Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $insertSql
         Log "Successfully sent data."
     } catch {
         Log "ERROR SQL: $_"
@@ -120,11 +122,14 @@ EXEC InsertMeasurement
     }
 }
 
+# todo: create own function get get all stugfg
+
 # ====== Script ======
 Import-Module SqlServer -ErrorAction SilentlyContinue
 
 CheckAdmin
 CheckParams
+InitConnection
 
 try {
     $data = Get-SystemData
