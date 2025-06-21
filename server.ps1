@@ -62,15 +62,6 @@ function InitConnection {
     Log "Connection string initialized."
 }
 
-function SafeParseDouble($val) {
-    if ($null -eq $val -or $val -eq "") { return 0.0 }
-    try {
-        return [double]::Parse($val.ToString().Replace(',', '.'), [System.Globalization.CultureInfo]::InvariantCulture)
-    } catch {
-        return 0.0
-    }
-}
-
 function GetSummary {
     $query = "SELECT TOP 1 * FROM vw_DashboardSummary"
 
@@ -84,53 +75,38 @@ function GetSummary {
     }
 }
 
-
-function GetComputers {
-    $query = "SELECT computerId, hostname, ipAddress, operatingSystem, lastContact FROM Computer"
-
-    try {
-        $computers = Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-        return $computers
-    } catch {
-        Log "ERROR: Failed to fetch computers: $_"
-        exit 2
-    }
-}
-
 function GetWarnings {
-    $query = @"
-SELECT 
-    w.warningId,
-    w.measurementId,
-    w.type,
-    w.description,
-    w.severityLevel,
-    m.timestamp
-FROM Warning w
-JOIN Measurement m ON m.measurementId = w.measurementId
-ORDER BY m.timestamp DESC
-"@
+    $query = "SELECT * FROM vw_LatestWarnings"
 
     try {
         $warnings = Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
         return $warnings
     } catch {
-        Log "ERROR: Failed to fetch warnings: $_"
+        Log "ERROR: Failed to fetch latest warnings: $_"
         exit 4
+    }
+}
+
+function GetMeasurements {
+    $query = "SELECT * FROM vw_Latest10Measurements"
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: Failed to fetch measurements: $_"
+        exit 5
     }
 }
 
 function WriteToJs {
     param(
-        $computers,
         $warnings,
+        $measurements,
         $summary
     )
 
-    if (-not $computers) { $computers = @() }
     if (-not $warnings) { $warnings = @() }
 
-    # Pre-parse summary values outside of here-string to ensure accuracy
+    # Pre-parse summary values
     $computerCount = $summary.computerCount
     $cpuAvg = $summary.avgCpuToday
     $ramAvg =  $summary.avgRamUsageToday
@@ -150,22 +126,8 @@ function WriteToJs {
   },
 "@
 
-    # Computers section
-    $output += "  computers: [`n"
-    foreach ($comp in $computers) {
-        $output += @"
-    {
-      computerId: $($comp.computerId),
-      hostname: '$($comp.hostname)',
-      ipAddress: '$($comp.ipAddress)',
-      operatingSystem: '$($comp.operatingSystem)',
-      lastContact: '$($comp.lastContact.ToString("yyyy-MM-dd HH:mm:ss"))'
-    },
-"@
-    }
-    $output = $output.TrimEnd(",`n") + "`n  ],`n"
 
-    # Warnings section
+     # Warnings
     $output += "  warnings: [`n"
     foreach ($warn in $warnings) {
         $output += @"
@@ -175,7 +137,25 @@ function WriteToJs {
       type: '$($warn.type)',
       description: '$($warn.description)',
       severityLevel: '$($warn.severityLevel)',
-      timestamp: '$($warn.timestamp.ToString("yyyy-MM-dd HH:mm:ss"))'
+      timestamp: '$($warn.timestamp.ToString("yyyy-MM-dd HH:mm:ss"))',
+      hostname: '$($warn.hostname)'
+    },
+"@
+    }
+    $output = $output.TrimEnd(",`n") + "`n  ],`n"
+
+      # Measurements
+    $output += "  measurements: [`n"
+    foreach ($m in $measurements) {
+        $uptime = [math]::Round(($m.uptimeMinutes / 60), 1)
+        $output += @"
+    {
+      hostname: '$($m.hostname)',
+      cpuUsagePercent: $($m.cpuUsagePercent),
+      ramUsagePercent: $($m.ramUsagePercent),
+      diskUsagePercent: $($m.diskUsagePercent),
+      uptimeHours: $uptime,
+      timestamp: '$($m.timestamp.ToString("yyyy-MM-dd HH:mm:ss"))'
     },
 "@
     }
@@ -183,14 +163,15 @@ function WriteToJs {
 
     try {
         Set-Content -Path "./data.js" -Value $output -Encoding UTF8
-        Log "data.js file successfully created with full dashboard summary, computers, and warnings."
+        Log "data.js file successfully created with summary, computers, and 10 latest warnings."
     } catch {
         Log "ERROR: Failed to write to data.js: $_"
         exit 5
     }
 }
 
-# Main script flow
+
+# Main script 
 Import-Module SqlServer -ErrorAction SilentlyContinue
 
 CheckAdmin
@@ -198,10 +179,11 @@ CheckParams
 InitConnection
 
 try {
-    $computers = GetComputers
     $warnings = GetWarnings
+    $measurements = GetMeasurements   # ← You were missing this
     $summary = GetSummary
-    WriteToJs -computers $computers -warnings $warnings -summary $summary
+
+    WriteToJs -warnings $warnings -measurements $measurements -summary $summary  # ← And this
 } catch {
     Log "ERROR: Unexpected error: $_"
     exit 1

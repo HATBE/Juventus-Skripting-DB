@@ -380,6 +380,7 @@ GO
 DROP VIEW IF EXISTS vw_DashboardSummary;
 GO
 
+-- get summary for dashboard
 CREATE VIEW vw_DashboardSummary AS
 SELECT
     -- Total registered computers
@@ -416,6 +417,38 @@ SELECT
     ) AS avgWarningsLast7Days;
 GO
 
+-- get latest warnings
+CREATE OR ALTER VIEW vw_LatestWarnings AS
+SELECT TOP 10
+    w.warningId,
+    w.measurementId,
+    w.type,
+    w.description,
+    w.severityLevel,
+    m.timestamp,
+    c.hostname
+FROM Warning w
+JOIN Measurement m ON m.measurementId = w.measurementId
+JOIN Computer c ON c.computerId = m.computerId
+ORDER BY m.timestamp DESC;
+
+
+-- get latest 10 measurements
+DROP VIEW IF EXISTS vw_Latest10Measurements;
+GO
+
+CREATE VIEW vw_Latest10Measurements AS
+SELECT TOP 10
+    c.hostname,
+    m.cpuUsagePercent,
+    CAST(m.ramUsedMB * 100.0 / NULLIF(m.ramTotalMB, 0) AS INT) AS ramUsagePercent,
+    CAST(m.diskUsedGB * 100.0 / NULLIF(m.diskTotalGB, 0) AS INT) AS diskUsagePercent,
+    m.uptimeMinutes,
+    m.timestamp
+FROM Measurement m
+JOIN Computer c ON c.computerId = m.computerId
+ORDER BY m.timestamp DESC;
+GO
 
 -- ========================
 -- Indexes
@@ -448,6 +481,8 @@ GRANT SELECT ON Computer TO serverUser;
 GRANT SELECT ON Category TO serverUser;
 GRANT EXECUTE ON InsertComputer TO serverUser;
 GRANT SELECT ON vw_DashboardSummary TO serverUser;
+GRANT SELECT ON vw_LatestWarnings TO serverUser;
+GRANT SELECT ON vw_Latest10Measurements TO serverUser;
 GO
 
 -- ========================
