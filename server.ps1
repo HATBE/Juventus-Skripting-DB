@@ -82,6 +82,16 @@ function GetRam7Days {
     }
 }
 
+function GetWarningStats {
+    $query = "SELECT * FROM vw_WarningTypeStatsLast7Days"
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: Failed to fetch warning stats: $_"
+        exit 10
+    }
+}
+
 function GetSummary {
     $query = "SELECT TOP 1 * FROM vw_DashboardSummary"
 
@@ -123,7 +133,9 @@ function WriteToJs {
         $measurements,
         $summary,
         $cpu7,
-        $ram7
+        $ram7,
+        $warnings7,
+        $warningStats
     )
 
     if (-not $warnings) { $warnings = @() }
@@ -195,7 +207,15 @@ function WriteToJs {
     foreach ($entry in $ram7) {
         $output += "    { day: '$($entry.day)', avgRamUsagePercent: $($entry.avgRamUsagePercent) },`n"
     }
-    $output = $output.TrimEnd(",`n") + "`n  ]`n}"
+    $output = $output.TrimEnd(",`n") + "`n  ],`n"
+
+    # Warning Stats by Type
+    $output += "  warningStats: [`n"
+    foreach ($entry in $warningStats) {
+        $output += "    { type: '$($entry.warningType)', count: $($entry.count), percentage: $($entry.percentage) },`n"
+    }
+    $output = $output.TrimEnd(",`n") + "`n  ]`n"
+    $output += "}"
 
     $output += ";"
 
@@ -220,10 +240,11 @@ try {
     $warnings = GetWarnings
     $cpu7 = GetCpu7Days
     $ram7 = GetRam7Days
-    $measurements = GetMeasurements   # ← You were missing this
+    $measurements = GetMeasurements
     $summary = GetSummary
+    $warningStats = GetWarningStats
 
-    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7
+    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7 -warnings7 $warnings7 -warningStats $warningStats
 } catch {
     Log "ERROR: Unexpected error: $_"
     exit 1

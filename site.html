@@ -202,6 +202,7 @@
 
       // -------------------------------
 
+      //cpu chart
       new Chart(document.getElementById("cpuChart"), {
         type: "line",
         data: {
@@ -233,6 +234,7 @@
         },
       });
 
+      // ram chart
       new Chart(document.getElementById("ramChart"), {
         type: "line",
         data: {
@@ -264,16 +266,41 @@
         },
       });
 
+      // warnings  chart
       new Chart(document.getElementById("warningsChart"), {
         type: "pie",
         data: {
-          labels: ["HighCPU", "HighRAM", "LowDisk"],
+          labels: data.warningStats.map((entry) => entry.type),
           datasets: [
             {
-              data: [5, 3, 2],
-              backgroundColor: ["#dc3545", "#ffc107", "#0d6efd"],
+              data: data.warningStats.map((entry) => entry.percentage),
+              backgroundColor: [
+                "#dc3545", // HighCPU - red
+                "#ffc107", // HighRAM - yellow
+                "#0d6efd", // LowDisk - blue
+                "#198754", // Healthy - green
+                "#6f42c1", // fallback purple
+                "#fd7e14", // fallback orange
+              ],
             },
           ],
+        },
+        options: {
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function (ctx) {
+                  return `${ctx.label}: ${ctx.raw.toFixed(1)}%`;
+                },
+              },
+            },
+            legend: {
+              position: "bottom",
+              labels: {
+                color: "#fff",
+              },
+            },
+          },
         },
       });
     </script>

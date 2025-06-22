@@ -476,7 +476,47 @@ WHERE m.timestamp >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
 GROUP BY CAST(m.timestamp AS DATE);
 GO
 
+-- warnings by type last 7 days
+DROP VIEW IF EXISTS vw_WarningTypeStatsLast7Days;
+GO
 
+CREATE VIEW vw_WarningTypeStatsLast7Days AS
+WITH AllMeasurements AS (
+    SELECT m.measurementId
+    FROM Measurement m
+    WHERE m.timestamp >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
+),
+WarningCounts AS (
+    SELECT
+        w.type AS warningType,
+        COUNT(*) AS count
+    FROM Warning w
+    JOIN Measurement m ON m.measurementId = w.measurementId
+    WHERE m.timestamp >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
+    GROUP BY w.type
+),
+HealthyCount AS (
+    SELECT COUNT(*) AS count
+    FROM AllMeasurements m
+    WHERE NOT EXISTS (
+        SELECT 1 FROM Warning w WHERE w.measurementId = m.measurementId
+    )
+),
+Unioned AS (
+    SELECT warningType, count FROM WarningCounts
+    UNION ALL
+    SELECT 'Healthy', count FROM HealthyCount
+),
+Total AS (
+    SELECT SUM(count) AS total FROM Unioned
+)
+SELECT
+    u.warningType,
+    u.count,
+    ROUND(CAST(u.count AS FLOAT) * 100.0 / NULLIF(t.total, 0), 2) AS percentage
+FROM Unioned u
+CROSS JOIN Total t;
+GO
 -- ========================
 -- Indexes
 -- ========================
@@ -512,6 +552,7 @@ GRANT SELECT ON vw_LatestWarnings TO serverUser;
 GRANT SELECT ON vw_Latest10Measurements TO serverUser;
 GRANT SELECT ON vw_AvgCpuUsageLast7Days TO serverUser;
 GRANT SELECT ON vw_AvgRamUsageLast7Days TO serverUser;
+GRANT SELECT ON vw_WarningTypeStatsLast7Days TO serverUser;
 GO
 
 -- ========================
