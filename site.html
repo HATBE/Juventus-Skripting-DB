@@ -35,9 +35,9 @@
     </style>
   </head>
   <body>
-    <header>
+    <header class="page-container">
       <h1 class="text-center my-3">Monitoring Dashboard</h1>
-      <p class="text-end text-muted">Stand: <span id="timestamp"></span></p>
+      <p class="text-end text-light">Stand: <span id="timestamp"></span></p>
     </header>
     <main class="page-container">
       <div class="row">
@@ -194,10 +194,7 @@
       //---------------------
 
       // Set timestamp
-      const now = new Date();
-      document.getElementById("timestamp").textContent =
-        now.toLocaleString("de-DE");
-
+      document.getElementById("timestamp").textContent = data.lastUpdated;
       // Platzhalterdaten für Charts
       new Chart(document.getElementById("warningsChart"), {
         type: "pie",

@@ -113,7 +113,7 @@ function WriteToJs {
     $avgWarnings = $summary.avgWarningsLast7Days
     $warningsToday = $summary.warningsToday
 
-    $output = "const data = {`n"
+    $output = "const data = {`n  lastUpdated: '" + (Get-Date -Format "d.M.yyyy HH:mm:ss") + "',`n"
 
     # Summary section
     $output += @"
