@@ -120,13 +120,17 @@
           </section>
 
           <section class="my-4 row">
-            <div class="col-3 offset-3">
+            <div class="col-3">
               <h4>Warnungen nach Typ</h4>
               <canvas id="warningsChart"></canvas>
             </div>
             <div class="col-3">
               <h4>CPU-Verlauf</h4>
               <canvas id="cpuChart"></canvas>
+            </div>
+            <div class="col-3">
+              <h4>Ram-Verlauf</h4>
+              <canvas id="ramChart"></canvas>
             </div>
           </section>
         </div>
@@ -195,7 +199,71 @@
 
       // Set timestamp
       document.getElementById("timestamp").textContent = data.lastUpdated;
-      // Platzhalterdaten für Charts
+
+      // -------------------------------
+
+      new Chart(document.getElementById("cpuChart"), {
+        type: "line",
+        data: {
+          labels: data.cpu7Days.map((entry) =>
+            new Date(entry.day).toLocaleDateString("de-DE")
+          ),
+          datasets: [
+            {
+              label: "Ø CPU-Auslastung (%)",
+              data: data.cpu7Days.map((entry) => entry.avgCpuUsage),
+              borderColor: "rgba(255, 99, 132, 1)",
+              backgroundColor: "rgba(255, 99, 132, 0.2)",
+              fill: true,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              ticks: {
+                callback: (value) => value + "%",
+              },
+            },
+          },
+        },
+      });
+
+      new Chart(document.getElementById("ramChart"), {
+        type: "line",
+        data: {
+          labels: data.ram7Days.map((entry) =>
+            new Date(entry.day).toLocaleDateString("de-DE")
+          ),
+          datasets: [
+            {
+              label: "Ø RAM-Auslastung (%)",
+              data: data.ram7Days.map((entry) => entry.avgRamUsagePercent),
+              borderColor: "rgba(54, 162, 235, 1)",
+              backgroundColor: "rgba(54, 162, 235, 0.2)",
+              fill: true,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 100,
+              ticks: {
+                callback: (value) => value + "%",
+              },
+            },
+          },
+        },
+      });
+
       new Chart(document.getElementById("warningsChart"), {
         type: "pie",
         data: {
@@ -204,22 +272,6 @@
             {
               data: [5, 3, 2],
               backgroundColor: ["#dc3545", "#ffc107", "#0d6efd"],
-            },
-          ],
-        },
-      });
-
-      new Chart(document.getElementById("cpuChart"), {
-        type: "line",
-        data: {
-          labels: ["10:00", "10:05", "10:10", "10:15", "10:20"],
-          datasets: [
-            {
-              label: "CPU % (Host X)",
-              data: [35, 42, 55, 48, 60],
-              fill: false,
-              borderColor: "rgb(75, 192, 192)",
-              tension: 0.1,
             },
           ],
         },

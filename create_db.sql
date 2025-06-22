@@ -450,6 +450,33 @@ JOIN Computer c ON c.computerId = m.computerId
 ORDER BY m.timestamp DESC;
 GO
 
+-- average cpu usage last 7 days
+DROP VIEW IF EXISTS vw_AvgCpuUsageLast7Days;
+GO
+
+CREATE VIEW vw_AvgCpuUsageLast7Days AS
+SELECT 
+    CAST(m.timestamp AS DATE) AS [day],
+    ROUND(AVG(m.cpuUsagePercent), 2) AS avgCpuUsage
+FROM Measurement m
+WHERE m.timestamp >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
+GROUP BY CAST(m.timestamp AS DATE);
+GO
+
+-- average ram usage last 7 days
+DROP VIEW IF EXISTS vw_AvgRamUsageLast7Days;
+GO
+
+CREATE VIEW vw_AvgRamUsageLast7Days AS
+SELECT 
+    CAST(m.timestamp AS DATE) AS [day],
+    ROUND(AVG(CAST(m.ramUsedMB AS FLOAT) * 100.0 / NULLIF(m.ramTotalMB, 0)), 2) AS avgRamUsagePercent
+FROM Measurement m
+WHERE m.timestamp >= DATEADD(DAY, -7, CAST(GETDATE() AS DATE))
+GROUP BY CAST(m.timestamp AS DATE);
+GO
+
+
 -- ========================
 -- Indexes
 -- ========================
@@ -483,6 +510,8 @@ GRANT EXECUTE ON InsertComputer TO serverUser;
 GRANT SELECT ON vw_DashboardSummary TO serverUser;
 GRANT SELECT ON vw_LatestWarnings TO serverUser;
 GRANT SELECT ON vw_Latest10Measurements TO serverUser;
+GRANT SELECT ON vw_AvgCpuUsageLast7Days TO serverUser;
+GRANT SELECT ON vw_AvgRamUsageLast7Days TO serverUser;
 GO
 
 -- ========================

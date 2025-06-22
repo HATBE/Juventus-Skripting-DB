@@ -62,6 +62,26 @@ function InitConnection {
     Log "Connection string initialized."
 }
 
+function GetCpu7Days {
+    $query = "SELECT * FROM vw_AvgCpuUsageLast7Days"
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: Failed to fetch 7-day CPU averages: $_"
+        exit 7
+    }
+}
+
+function GetRam7Days {
+    $query = "SELECT * FROM vw_AvgRamUsageLast7Days"
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: Failed to fetch 7-day RAM averages: $_"
+        exit 8
+    }
+}
+
 function GetSummary {
     $query = "SELECT TOP 1 * FROM vw_DashboardSummary"
 
@@ -101,7 +121,9 @@ function WriteToJs {
     param(
         $warnings,
         $measurements,
-        $summary
+        $summary,
+        $cpu7,
+        $ram7
     )
 
     if (-not $warnings) { $warnings = @() }
@@ -159,7 +181,23 @@ function WriteToJs {
     },
 "@
     }
-    $output = $output.TrimEnd(",`n") + "`n  ]`n};"
+    $output = $output.TrimEnd(",`n") + "`n  ],`n" 
+
+     # CPU 7-day stats
+    $output += "  cpu7Days: [`n"
+    foreach ($entry in $cpu7) {
+        $output += "    { day: '$($entry.day)', avgCpuUsage: $($entry.avgCpuUsage) },`n"
+    }
+    $output = $output.TrimEnd(",`n") + "`n  ],`n"
+
+    # RAM 7-day stats
+    $output += "  ram7Days: [`n"
+    foreach ($entry in $ram7) {
+        $output += "    { day: '$($entry.day)', avgRamUsagePercent: $($entry.avgRamUsagePercent) },`n"
+    }
+    $output = $output.TrimEnd(",`n") + "`n  ]`n}"
+
+    $output += ";"
 
     try {
         Set-Content -Path "./data.js" -Value $output -Encoding UTF8
@@ -180,10 +218,12 @@ InitConnection
 
 try {
     $warnings = GetWarnings
+    $cpu7 = GetCpu7Days
+    $ram7 = GetRam7Days
     $measurements = GetMeasurements   # ← You were missing this
     $summary = GetSummary
 
-    WriteToJs -warnings $warnings -measurements $measurements -summary $summary  # ← And this
+    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7
 } catch {
     Log "ERROR: Unexpected error: $_"
     exit 1
