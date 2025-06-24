@@ -83,7 +83,7 @@
         <div class="col-10">
           <section class="my-4 row">
             <div class="col-6">
-              <h3>Aktuelle Warnungen</h3>
+              <h3 class="fw-bold">Aktuelle Warnungen</h3>
               <table
                 class="table table-danger table-striped rounded overflow-hidden"
               >
@@ -100,7 +100,7 @@
               </table>
             </div>
             <div class="col-6">
-              <h3>Neuste Messungen</h3>
+              <h3 class="fw-bold">Neuste Messungen</h3>
               <table
                 class="table table-primary table-striped rounded overflow-hidden"
               >
@@ -121,15 +121,15 @@
 
           <section class="my-4 row">
             <div class="col-3">
-              <h4>Warnungen nach Typ</h4>
+              <h4 class="fw-bold">Warnungen nach Typ</h4>
               <canvas id="warningsChart"></canvas>
             </div>
             <div class="col-3">
-              <h4>CPU-Verlauf</h4>
+              <h4 class="fw-bold">CPU-Verlauf</h4>
               <canvas id="cpuChart"></canvas>
             </div>
             <div class="col-3">
-              <h4>Ram-Verlauf</h4>
+              <h4 class="fw-bold">Ram-Verlauf</h4>
               <canvas id="ramChart"></canvas>
             </div>
           </section>
@@ -149,8 +149,14 @@
 
       computerCountEl.textContent = data.summary.computerCount;
       warningsCountEl.textContent = data.summary.warningsToday;
-      avgCpuPercentEl.textContent = data.summary.avgCpuToday + "%";
-      avgRamPercentEl.textContent = data.summary.avgRamUsageToday + "%";
+      avgCpuPercentEl.textContent =
+        data.summary.avgCpuToday == 0
+          ? "Keine Daten"
+          : data.summary.avgCpuToday + "%";
+      avgRamPercentEl.textContent =
+        data.summary.avgRamToday == 0
+          ? "Keine Daten"
+          : data.summary.avgRamToday + "%";
       warningsCount7daysEl.textContent = data.summary.avgWarningsLast7Days;
 
       //-----------------------------
@@ -161,15 +167,21 @@
         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
       );
 
+      if (sortedWarnings.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="5" class="text-center">Keine Warnungen vorhanden</td>`;
+        warningsTableEl.appendChild(tr);
+      }
+
       sortedWarnings.forEach((warn) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td>${warn.hostname}</td>
-          <td>${warn.type}</td>
-          <td>${warn.description}</td>
-          <td>${warn.severityLevel}</td>
-          <td>${new Date(warn.timestamp).toLocaleString("de-DE")}</td>
-        `;
+            <td>${warn.hostname}</td>
+            <td>${warn.type}</td>
+            <td>${warn.description}</td>
+            <td>${warn.severityLevel}</td>
+            <td>${new Date(warn.timestamp).toLocaleString("de-DE")}</td>
+          `;
         warningsTableEl.appendChild(tr);
       });
 
@@ -182,16 +194,22 @@
         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
       );
 
+      if (sortedMeasurements.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="6" class="text-center">Keine Messungen vorhanden</td>`;
+        measurementsTableEl.appendChild(tr);
+      }
+
       sortedMeasurements.forEach((m) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td>${m.hostname}</td>
-          <td>${m.cpuUsagePercent}%</td>
-          <td>${m.ramUsagePercent}%</td>
-          <td>${m.diskUsagePercent}%</td>
-          <td>${m.uptimeHours} Stunden</td>
-          <td>${new Date(m.timestamp).toLocaleString("de-DE")}</td>
-        `;
+            <td>${m.hostname}</td>
+            <td>${m.cpuUsagePercent}%</td>
+            <td>${m.ramUsagePercent}%</td>
+            <td>${m.diskUsagePercent}%</td>
+            <td>${m.uptimeHours} Stunden</td>
+            <td>${new Date(m.timestamp).toLocaleString("de-DE")}</td>
+          `;
         measurementsTableEl.appendChild(tr);
       });
 
@@ -203,106 +221,141 @@
       // -------------------------------
 
       //cpu chart
-      new Chart(document.getElementById("cpuChart"), {
-        type: "line",
-        data: {
-          labels: data.cpu7Days.map((entry) =>
-            new Date(entry.day).toLocaleDateString("de-DE")
-          ),
-          datasets: [
-            {
-              label: "Ø CPU-Auslastung (%)",
-              data: data.cpu7Days.map((entry) => entry.avgCpuUsage),
-              borderColor: "rgba(255, 99, 132, 1)",
-              backgroundColor: "rgba(255, 99, 132, 0.2)",
-              fill: true,
-              tension: 0.3,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              ticks: {
-                callback: (value) => value + "%",
-              },
-            },
-          },
-        },
-      });
+      const cpuChartCanvas = document.getElementById("cpuChart");
+      const cpuChartContainer = cpuChartCanvas.parentElement;
 
-      // ram chart
-      new Chart(document.getElementById("ramChart"), {
-        type: "line",
-        data: {
-          labels: data.ram7Days.map((entry) =>
-            new Date(entry.day).toLocaleDateString("de-DE")
-          ),
-          datasets: [
-            {
-              label: "Ø RAM-Auslastung (%)",
-              data: data.ram7Days.map((entry) => entry.avgRamUsagePercent),
-              borderColor: "rgba(54, 162, 235, 1)",
-              backgroundColor: "rgba(54, 162, 235, 0.2)",
-              fill: true,
-              tension: 0.3,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-              ticks: {
-                callback: (value) => value + "%",
+      if (!data.cpu7Days || data.cpu7Days.length === 0) {
+        cpuChartCanvas.remove();
+        const noDataMessage = document.createElement("p");
+        noDataMessage.textContent = "Keine Daten für CPU-Verlauf verfügbar";
+        noDataMessage.classList.add("text-light");
+        cpuChartContainer.appendChild(noDataMessage);
+      } else {
+        new Chart(cpuChartCanvas, {
+          type: "line",
+          data: {
+            labels: data.cpu7Days.map((entry) =>
+              new Date(entry.day).toLocaleDateString("de-DE")
+            ),
+            datasets: [
+              {
+                label: "Ø CPU-Auslastung (%)",
+                data: data.cpu7Days.map((entry) => entry.avgCpuUsage),
+                borderColor: "rgba(255, 99, 132, 1)",
+                backgroundColor: "rgba(255, 99, 132, 0.2)",
+                fill: true,
+                tension: 0.3,
               },
-            },
+            ],
           },
-        },
-      });
-
-      // warnings  chart
-      new Chart(document.getElementById("warningsChart"), {
-        type: "pie",
-        data: {
-          labels: data.warningStats.map((entry) => entry.type),
-          datasets: [
-            {
-              data: data.warningStats.map((entry) => entry.percentage),
-              backgroundColor: [
-                "#dc3545", // HighCPU - red
-                "#ffc107", // HighRAM - yellow
-                "#0d6efd", // LowDisk - blue
-                "#198754", // Healthy - green
-                "#6f42c1", // fallback purple
-                "#fd7e14", // fallback orange
-              ],
-            },
-          ],
-        },
-        options: {
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function (ctx) {
-                  return `${ctx.label}: ${ctx.raw.toFixed(1)}%`;
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 100,
+                ticks: {
+                  callback: (value) => value + "%",
                 },
               },
             },
-            legend: {
-              position: "bottom",
-              labels: {
-                color: "#fff",
+          },
+        });
+      }
+
+      // ram chart
+
+      const ramChartCanvas = document.getElementById("ramChart");
+      const ramChartContainer = ramChartCanvas.parentElement;
+
+      if (!data.ram7Days || data.ram7Days.length === 0) {
+        // Remove canvas and insert message instead
+        ramChartCanvas.remove();
+        const noDataMessage = document.createElement("p");
+        noDataMessage.textContent = "Keine Daten für RAM-Verlauf verfügbar";
+        noDataMessage.classList.add("text-light");
+        ramChartContainer.appendChild(noDataMessage);
+      } else {
+        new Chart(ramChartCanvas, {
+          type: "line",
+          data: {
+            labels: data.ram7Days.map((entry) =>
+              new Date(entry.day).toLocaleDateString("de-DE")
+            ),
+            datasets: [
+              {
+                label: "Ø RAM-Auslastung (%)",
+                data: data.ram7Days.map((entry) => entry.avgRamUsagePercent),
+                borderColor: "rgba(54, 162, 235, 1)",
+                backgroundColor: "rgba(54, 162, 235, 0.2)",
+                fill: true,
+                tension: 0.3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 100,
+                ticks: {
+                  callback: (value) => value + "%",
+                },
               },
             },
           },
-        },
-      });
+        });
+      }
+
+      // warnings  chart
+      const warningsChartCanvas = document.getElementById("warningsChart");
+      const warningsChartContainer = warningsChartCanvas.parentElement;
+
+      if (!data.warningStats || data.warningStats.length === 0) {
+        warningsChartCanvas.remove();
+        const noDataMessage = document.createElement("p");
+        noDataMessage.textContent = "Keine Daten für Warnungstypen verfügbar";
+        noDataMessage.classList.add("text-light");
+        warningsChartContainer.appendChild(noDataMessage);
+      } else {
+        new Chart(warningsChartCanvas, {
+          type: "pie",
+          data: {
+            labels: data.warningStats.map((entry) => entry.type),
+            datasets: [
+              {
+                data: data.warningStats.map((entry) => entry.percentage),
+                backgroundColor: [
+                  "#dc3545", // HighCPU - red
+                  "#ffc107", // HighRAM - yellow
+                  "#0d6efd", // LowDisk - blue
+                  "#198754", // Healthy - green
+                  "#6f42c1", // fallback purple
+                  "#fd7e14", // fallback orange
+                ],
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) {
+                    return `${ctx.label}: ${ctx.raw.toFixed(1)}%`;
+                  },
+                },
+              },
+              legend: {
+                position: "bottom",
+                labels: {
+                  color: "#fff",
+                },
+              },
+            },
+          },
+        });
+      }
     </script>
   </body>
 </html>

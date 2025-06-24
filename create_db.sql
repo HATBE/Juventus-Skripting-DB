@@ -418,7 +418,10 @@ SELECT
 GO
 
 -- get latest warnings
-CREATE OR ALTER VIEW vw_LatestWarnings AS
+DROP VIEW IF EXISTS vw_LatestWarnings;
+GO
+
+CREATE VIEW vw_LatestWarnings AS
 SELECT TOP 10
     w.warningId,
     w.measurementId,
@@ -431,7 +434,7 @@ FROM Warning w
 JOIN Measurement m ON m.measurementId = w.measurementId
 JOIN Computer c ON c.computerId = m.computerId
 ORDER BY m.timestamp DESC;
-
+GO
 
 -- get latest 10 measurements
 DROP VIEW IF EXISTS vw_Latest10Measurements;

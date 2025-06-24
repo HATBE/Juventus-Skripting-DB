@@ -141,11 +141,11 @@ function WriteToJs {
     if (-not $warnings) { $warnings = @() }
 
     # Pre-parse summary values
-    $computerCount = $summary.computerCount
-    $cpuAvg = $summary.avgCpuToday
-    $ramAvg =  $summary.avgRamUsageToday
-    $avgWarnings = $summary.avgWarningsLast7Days
-    $warningsToday = $summary.warningsToday
+    $computerCount = $summary.computerCount -as [int]; if (-not $computerCount) { $computerCount = 0 }
+    $cpuAvg = $summary.avgCpuToday -as [double]; if (-not $cpuAvg) { $cpuAvg = 0 }
+    $ramAvg = $summary.avgRamUsageToday -as [double]; if (-not $ramAvg) { $ramAvg = 0 }
+    $avgWarnings = $summary.avgWarningsLast7Days -as [double]; if (-not $avgWarnings) { $avgWarnings = 0 }
+    $warningsToday = $summary.warningsToday -as [int]; if (-not $warningsToday) { $warningsToday = 0 }
 
     $output = "const data = {`n  lastUpdated: '" + (Get-Date -Format "d.M.yyyy HH:mm:ss") + "',`n"
 
@@ -212,7 +212,9 @@ function WriteToJs {
     # Warning Stats by Type
     $output += "  warningStats: [`n"
     foreach ($entry in $warningStats) {
-        $output += "    { type: '$($entry.warningType)', count: $($entry.count), percentage: $($entry.percentage) },`n"
+        $count = $entry.count -as [int]; if (-not $count) { $count = 0 }
+        $percentage = $entry.percentage -as [double]; if (-not $percentage) { $percentage = 0 }
+        $output += "    { type: '$($entry.warningType)', count: $count, percentage: $percentage },`n"
     }
     $output = $output.TrimEnd(",`n") + "`n  ]`n"
     $output += "}"
@@ -238,13 +240,34 @@ InitConnection
 
 try {
     $warnings = GetWarnings
-    $cpu7 = GetCpu7Days
-    $ram7 = GetRam7Days
-    $measurements = GetMeasurements
-    $summary = GetSummary
-    $warningStats = GetWarningStats
+    if (-not $warnings) { $warnings = @() }
 
-    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7 -warnings7 $warnings7 -warningStats $warningStats
+    $cpu7 = GetCpu7Days
+    if (-not $cpu7) { $cpu7 = @() }
+
+    $ram7 = GetRam7Days
+    if (-not $ram7) { $ram7 = @() }
+
+    $measurements = GetMeasurements
+    if (-not $measurements) { $measurements = @() }
+
+    $summary = GetSummary
+    if (-not $summary -or $summary.Count -eq 0) {
+        $summary = @{
+            computerCount = 0
+            avgCpuToday = 0
+            avgRamUsageToday = 0
+            avgWarningsLast7Days = 0
+            warningsToday = 0
+        }
+    } else {
+        $summary = $summary[0]  # Because SELECT TOP 1 returns a single-row DataTable
+    }
+
+    $warningStats = GetWarningStats
+    if (-not $warningStats) { $warningStats = @() }
+
+    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7 -warnings7 $null -warningStats $warningStats
 } catch {
     Log "ERROR: Unexpected error: $_"
     exit 1
