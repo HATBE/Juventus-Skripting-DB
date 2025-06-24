@@ -36,95 +36,88 @@ param (
     [switch]$silent
 )
 
+Import-Module SqlServer -ErrorAction SilentlyContinue
+
+function swissDate {
+    return (Get-Date -Format "dd.MM.yyyy HH:mm:ss")
+}
+
 function Log {
     param([string]$msg)
     if (-not $silent) {
-        Write-Host "$(Get-Date -Format "u") $msg"
+        Write-Host "$(swissDate) $msg"
     }
 }
 
 function CheckParams {
-    if (-not $dbUser -or -not $dbPass) {
-        Log "ERROR: Required parameters -dbUser and -dbPass are missing."
-        exit 99
+    if (-not $dbUser -or -not $dbPass  -or -not $dbUser) {
+        Log "ERROR: Required parameters -dbUser and -dbPass and -dbUser are missing."
+        exit 1
     }
 }
 
 function CheckAdmin {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Log "WARNING: Script must be executed as administrator."
+        Log "ERROR: Script must be executed as administrator."
         exit 1
     }
 }
 
-function InitConnection {
+function InitDBConnection {
     $Global:connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
-    Log "Connection string initialized."
+    Log "Connection to DB set in connectionstring."
 }
 
-function GetCpu7Days {
+function execSQLQuery {
+    param(
+        [string]$query
+    )
+    
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: SQL query failed: $_"
+        exit 1
+    }
+}
+
+function Getcpu7daysDays {
     $query = "SELECT * FROM vw_AvgCpuUsageLast7Days"
-    try {
-        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-    } catch {
-        Log "ERROR: Failed to fetch 7-day CPU averages: $_"
-        exit 7
-    }
+    return execSQLQuery -query $query
+}
+function Getram7daysDays {
+    $query = "SELECT * FROM vw_AvgRamUsageLast7Days"
+    return execSQLQuery -query $query
 }
 
-function GetRam7Days {
+function Getram7daysDays {
     $query = "SELECT * FROM vw_AvgRamUsageLast7Days"
-    try {
-        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-    } catch {
-        Log "ERROR: Failed to fetch 7-day RAM averages: $_"
-        exit 8
-    }
+    return execSQLQuery -query $query
 }
 
 function GetWarningStats {
     $query = "SELECT * FROM vw_WarningTypeStatsLast7Days"
-    try {
-        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-    } catch {
-        Log "ERROR: Failed to fetch warning stats: $_"
-        exit 10
-    }
+    return execSQLQuery -query $query
+}
+
+function GetOperatingSystemStats {
+    $query = "SELECT * FROM vw_OperatingSystemStats"
+    return execSQLQuery -query $query
 }
 
 function GetSummary {
-    $query = "SELECT TOP 1 * FROM vw_DashboardSummary"
-
-    try {
-        $summary = Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-
-        return $summary
-    } catch {
-        Log "ERROR: Failed to fetch summary from view: $_"
-        exit 6
-    }
+    $query = "SELECT * FROM vw_DashboardSummary"
+    return execSQLQuery -query $query
 }
 
 function GetWarnings {
     $query = "SELECT * FROM vw_LatestWarnings"
-
-    try {
-        $warnings = Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-        return $warnings
-    } catch {
-        Log "ERROR: Failed to fetch latest warnings: $_"
-        exit 4
-    }
+    return execSQLQuery -query $query
 }
 
 function GetMeasurements {
     $query = "SELECT * FROM vw_Latest10Measurements"
-    try {
-        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
-    } catch {
-        Log "ERROR: Failed to fetch measurements: $_"
-        exit 5
-    }
+    return execSQLQuery -query $query
 }
 
 function WriteToJs {
@@ -132,142 +125,115 @@ function WriteToJs {
         $warnings,
         $measurements,
         $summary,
-        $cpu7,
-        $ram7,
+        $cpu7days,
+        $ram7days,
         $warnings7,
-        $warningStats
+        $warningStats,
+        $osStats
     )
 
-    if (-not $warnings) { $warnings = @() }
+    $data = @{
+        lastUpdated = (swissDate)
+        summary = @{
+            computerCount = $summary.computerCount
+            warningsToday = $summary.warningsToday
+            avgCpuToday = $summary.avgCpuToday
+            avgRamUsageToday = $summary.avgRamUsageToday
+            avgWarningsLast7Days = $summary.avgWarningsLast7Days
+        }
+        osStats = $osStats | ForEach-Object {
+            @{
+                osName = $_.operatingSystem
+                percentage = $_.percentage -as [double]
+            }
+        }
+        warnings = $warnings | ForEach-Object {
+            @{
+                warningId = $_.warningId
+                measurementId = $_.measurementId
+                type = $_.type
+                description = $_.description
+                severityLevel = $_.severityLevel
+                timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss") # american format, because JS uses this in this usecase
+                hostname = $_.hostname
+            }
+        }
+        measurements = $measurements | ForEach-Object {
+            @{
+                hostname = $_.hostname
+                cpuUsagePercent = $_.cpuUsagePercent
+                ramUsagePercent = $_.ramUsagePercent
+                diskUsagePercent = $_.diskUsagePercent
+                uptimeHours = [math]::Round($_.uptimeMinutes / 60, 1)
+                timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+            }
+        }
+        cpu7Days = $cpu7days | ForEach-Object {
+            @{ 
+                day = $_.day.ToString("yyyy-MM-dd"); 
+                avgCpuUsage = $_.avgCpuUsage
+            }
+        }
+        ram7Days = $ram7days | ForEach-Object {
+            @{ 
+                day = $_.day.ToString("yyyy-MM-dd"); ; 
+                avgRamUsagePercent = $_.avgRamUsagePercent
+            }
+        }
+       warningStats = $warningStats | ForEach-Object {
+            $count = $_.count -as [int]
+            if (-not $count) { $count = 0 }
 
-    # Pre-parse summary values
-    $computerCount = $summary.computerCount -as [int]; if (-not $computerCount) { $computerCount = 0 }
-    $cpuAvg = $summary.avgCpuToday -as [double]; if (-not $cpuAvg) { $cpuAvg = 0 }
-    $ramAvg = $summary.avgRamUsageToday -as [double]; if (-not $ramAvg) { $ramAvg = 0 }
-    $avgWarnings = $summary.avgWarningsLast7Days -as [double]; if (-not $avgWarnings) { $avgWarnings = 0 }
-    $warningsToday = $summary.warningsToday -as [int]; if (-not $warningsToday) { $warningsToday = 0 }
+            $percentage = $_.percentage -as [double]
+            if (-not $percentage) { $percentage = 0 }   
 
-    $output = "const data = {`n  lastUpdated: '" + (Get-Date -Format "d.M.yyyy HH:mm:ss") + "',`n"
-
-    # Summary section
-    $output += @"
-  summary: {
-    computerCount: $computerCount,
-    warningsToday: $warningsToday,
-    avgCpuToday: $cpuAvg,
-    avgRamUsageToday: $ramAvg,
-    avgWarningsLast7Days: $avgWarnings
-  },
-"@
-
-
-     # Warnings
-    $output += "  warnings: [`n"
-    foreach ($warn in $warnings) {
-        $output += @"
-    {
-      warningId: $($warn.warningId),
-      measurementId: $($warn.measurementId),
-      type: '$($warn.type)',
-      description: '$($warn.description)',
-      severityLevel: '$($warn.severityLevel)',
-      timestamp: '$($warn.timestamp.ToString("yyyy-MM-dd HH:mm:ss"))',
-      hostname: '$($warn.hostname)'
-    },
-"@
+            @{
+                type = $_.warningType
+                count = $count
+                percentage = $percentage
+            }
+        }
     }
-    $output = $output.TrimEnd(",`n") + "`n  ],`n"
-
-      # Measurements
-    $output += "  measurements: [`n"
-    foreach ($m in $measurements) {
-        $uptime = [math]::Round(($m.uptimeMinutes / 60), 1)
-        $output += @"
-    {
-      hostname: '$($m.hostname)',
-      cpuUsagePercent: $($m.cpuUsagePercent),
-      ramUsagePercent: $($m.ramUsagePercent),
-      diskUsagePercent: $($m.diskUsagePercent),
-      uptimeHours: $uptime,
-      timestamp: '$($m.timestamp.ToString("yyyy-MM-dd HH:mm:ss"))'
-    },
-"@
-    }
-    $output = $output.TrimEnd(",`n") + "`n  ],`n" 
-
-     # CPU 7-day stats
-    $output += "  cpu7Days: [`n"
-    foreach ($entry in $cpu7) {
-        $output += "    { day: '$($entry.day)', avgCpuUsage: $($entry.avgCpuUsage) },`n"
-    }
-    $output = $output.TrimEnd(",`n") + "`n  ],`n"
-
-    # RAM 7-day stats
-    $output += "  ram7Days: [`n"
-    foreach ($entry in $ram7) {
-        $output += "    { day: '$($entry.day)', avgRamUsagePercent: $($entry.avgRamUsagePercent) },`n"
-    }
-    $output = $output.TrimEnd(",`n") + "`n  ],`n"
-
-    # Warning Stats by Type
-    $output += "  warningStats: [`n"
-    foreach ($entry in $warningStats) {
-        $count = $entry.count -as [int]; if (-not $count) { $count = 0 }
-        $percentage = $entry.percentage -as [double]; if (-not $percentage) { $percentage = 0 }
-        $output += "    { type: '$($entry.warningType)', count: $count, percentage: $percentage },`n"
-    }
-    $output = $output.TrimEnd(",`n") + "`n  ]`n"
-    $output += "}"
-
-    $output += ";"
 
     try {
+        $json = $data | ConvertTo-Json
+        $output = "const data = $json;"
         Set-Content -Path "./data.js" -Value $output -Encoding UTF8
-        Log "data.js file successfully created with summary, computers, and 10 latest warnings."
+        Log "data.js file successfully created."
     } catch {
         Log "ERROR: Failed to write to data.js: $_"
-        exit 5
+        exit 1
     }
 }
 
-
 # Main script 
-Import-Module SqlServer -ErrorAction SilentlyContinue
-
 CheckAdmin
 CheckParams
-InitConnection
+InitDBConnection
 
 try {
     $warnings = GetWarnings
     if (-not $warnings) { $warnings = @() }
 
-    $cpu7 = GetCpu7Days
-    if (-not $cpu7) { $cpu7 = @() }
+    $cpu7days = Getcpu7daysDays
+    if (-not $cpu7days) { $cpu7days = @() }
 
-    $ram7 = GetRam7Days
-    if (-not $ram7) { $ram7 = @() }
+    $ram7days = Getram7daysDays
+    if (-not $ram7days) { $ram7days = @() }
 
     $measurements = GetMeasurements
     if (-not $measurements) { $measurements = @() }
 
     $summary = GetSummary
-    if (-not $summary -or $summary.Count -eq 0) {
-        $summary = @{
-            computerCount = 0
-            avgCpuToday = 0
-            avgRamUsageToday = 0
-            avgWarningsLast7Days = 0
-            warningsToday = 0
-        }
-    } else {
-        $summary = $summary[0]  # Because SELECT TOP 1 returns a single-row DataTable
-    }
+    if (-not $summary) { $summary = @()}
 
     $warningStats = GetWarningStats
     if (-not $warningStats) { $warningStats = @() }
 
-    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7 $cpu7 -ram7 $ram7 -warnings7 $null -warningStats $warningStats
+    $osStats = GetOperatingSystemStats
+    if (-not $osStats) { $osStats = @() }
+
+    WriteToJs -warnings $warnings -measurements $measurements -summary $summary -cpu7days $cpu7days -ram7days $ram7days -warnings7 $warnings -warningStats $warningStats -osStats $osStats
 } catch {
     Log "ERROR: Unexpected error: $_"
     exit 1

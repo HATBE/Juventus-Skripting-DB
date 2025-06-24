@@ -509,6 +509,7 @@ Unioned AS (
     SELECT warningType, count FROM WarningCounts
     UNION ALL
     SELECT 'Healthy', count FROM HealthyCount
+    WHERE count > 0 -- ✅ Only include if healthy measurements exist
 ),
 Total AS (
     SELECT SUM(count) AS total FROM Unioned
@@ -520,6 +521,24 @@ SELECT
 FROM Unioned u
 CROSS JOIN Total t;
 GO
+
+-- get operating system stats
+DROP VIEW IF EXISTS vw_OperatingSystemStats;
+GO
+
+CREATE VIEW vw_OperatingSystemStats AS
+WITH TotalComputers AS (
+    SELECT COUNT(*) AS total FROM Computer
+)
+SELECT 
+    c.operatingSystem,
+    COUNT(*) AS count,
+    ROUND(CAST(COUNT(*) AS FLOAT) * 100.0 / NULLIF(t.total, 0), 2) AS percentage
+FROM Computer c
+CROSS JOIN TotalComputers t
+GROUP BY c.operatingSystem, t.total;
+GO
+
 -- ========================
 -- Indexes
 -- ========================
@@ -556,6 +575,7 @@ GRANT SELECT ON vw_Latest10Measurements TO serverUser;
 GRANT SELECT ON vw_AvgCpuUsageLast7Days TO serverUser;
 GRANT SELECT ON vw_AvgRamUsageLast7Days TO serverUser;
 GRANT SELECT ON vw_WarningTypeStatsLast7Days TO serverUser;
+GRANT SELECT ON vw_OperatingSystemStats TO serverUser;
 GO
 
 -- ========================

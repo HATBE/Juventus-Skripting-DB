@@ -36,7 +36,7 @@
   </head>
   <body>
     <header class="page-container">
-      <h1 class="text-center my-3">Monitoring Dashboard</h1>
+      <h1 class="text-center my-3 fw-bold">Monitoring Dashboard</h1>
       <p class="text-end text-light">Stand: <span id="timestamp"></span></p>
     </header>
     <main class="page-container">
@@ -125,6 +125,10 @@
               <canvas id="warningsChart"></canvas>
             </div>
             <div class="col-3">
+              <h4 class="fw-bold">Betriebssysteme</h4>
+              <canvas id="osChart"></canvas>
+            </div>
+            <div class="col-3">
               <h4 class="fw-bold">CPU-Verlauf</h4>
               <canvas id="cpuChart"></canvas>
             </div>
@@ -154,9 +158,9 @@
           ? "Keine Daten"
           : data.summary.avgCpuToday + "%";
       avgRamPercentEl.textContent =
-        data.summary.avgRamToday == 0
+        data.summary.avgRamUsageToday == 0
           ? "Keine Daten"
-          : data.summary.avgRamToday + "%";
+          : data.summary.avgRamUsageToday + "%";
       warningsCount7daysEl.textContent = data.summary.avgWarningsLast7Days;
 
       //-----------------------------
@@ -333,6 +337,60 @@
                   "#198754", // Healthy - green
                   "#6f42c1", // fallback purple
                   "#fd7e14", // fallback orange
+                ],
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) {
+                    return `${ctx.label}: ${ctx.raw.toFixed(1)}%`;
+                  },
+                },
+              },
+              legend: {
+                position: "bottom",
+                labels: {
+                  color: "#fff",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      // os chart
+      const osChartCanvas = document.getElementById("osChart");
+      const osChartContainer = osChartCanvas.parentElement;
+
+      if (!data.osStats || data.osStats.length === 0) {
+        osChartCanvas.remove();
+        const noDataMessage = document.createElement("p");
+        noDataMessage.textContent = "Keine Daten für Betriebssysteme verfügbar";
+        noDataMessage.classList.add("text-light");
+        osChartContainer.appendChild(noDataMessage);
+      } else {
+        new Chart(osChartCanvas, {
+          type: "pie",
+          data: {
+            labels: data.osStats.map((entry) => entry.osName),
+            datasets: [
+              {
+                data: data.osStats.map((entry) => entry.percentage),
+                backgroundColor: [
+                  "#0d6efd",
+                  "#6f42c1",
+                  "#198754",
+                  "#dc3545",
+                  "#ffc107",
+                  "#20c997",
+                  "#6610f2",
+                  "#fd7e14",
+                  "#e83e8c",
+                  "#6c757d",
+                  "#198754",
                 ],
               },
             ],

@@ -36,25 +36,34 @@ param (
     [switch]$silent
 )
 
+function swissDate {
+    return (Get-Date -Format "dd.MM.yyyy HH:mm:ss")
+}
+
 function Log {
     param([string]$msg)
     if (-not $silent) {
-        Write-Host "$(Get-Date -Format "u") $msg"
+        Write-Host "$(swissDate) $msg"
     }
 }
 
 function CheckParams {
-    if (-not $dbUser -or -not $dbPass) {
-        Log "ERROR: Required parameters -dbUser and -dbPass are missing."
-        exit 99
+    if (-not $dbUser -or -not $dbPass  -or -not $dbUser) {
+        Log "ERROR: Required parameters -dbUser and -dbPass  and -dbUser are missing."
+        exit 1
     }
 }
 
 function CheckAdmin {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {        
-        Log "WARNING: Script must be executed as admin"
+        Log "ERROR: Script must be executed as administrator."
         exit 1
     }
+}
+
+function InitDBConnection {
+    $Global:connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
+    Log "Connection to DB set in connectionstring."
 }
 
 function Get-SystemData {
@@ -85,12 +94,6 @@ function Get-SystemData {
     }
 }
 
-function InitConnection {
-    Log "Start db connection..."
-    $Global:connectionString = "Server=$dbServer;Database=$dbName;User Id=$dbUser;Password=$dbPass;Encrypt=False;TrustServerCertificate=True"
-    Log "Connection string initialized."
-}
-
 function Write-ToDatabase($data) {
     $registerComputerSql = @"
 EXEC InsertComputer
@@ -118,7 +121,7 @@ EXEC InsertMeasurement
         Log "Successfully sent data."
     } catch {
         Log "ERROR SQL: $_"
-        exit 2
+        exit 1
     }
 }
 
@@ -129,7 +132,7 @@ Import-Module SqlServer -ErrorAction SilentlyContinue
 
 CheckAdmin
 CheckParams
-InitConnection
+InitDBConnection
 
 try {
     $data = Get-SystemData
