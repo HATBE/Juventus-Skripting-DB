@@ -1,30 +1,31 @@
 <#
 .SYNOPSIS
-    Monitoring CLient script to get a systems specs, and data
+    Monitoring client script to collect system specifications and metrics.
 
 .DESCRIPTION
-   The script collects metrics (CPU, RAM, disk, uptime, IP) and sends them to a central SQL Server database.
+    This script gathers system metrics including CPU usage, RAM usage, disk usage, system uptime, and IP address.
+    It then sends the collected data to a specified SQL Server database.
 
 .PARAMETER dbServer
-    SQL Server instance name/IP (default: DESKTOP-6PPL6UD\SQLEXPRESS)
+    SQL Server instance (z. b. ".\SQLEXPRESS" or "localhost")
 
 .PARAMETER dbUser
-    The username of the db server user
+    SQL login username
 
 .PARAMETER dbPass
-    The password of the db server user
+    SQL login password
 
 .PARAMETER dbName
-    The name of the db
-
-.PARAMETER computerName
-    Optional: Overwrites the host name determined
+    Name of the target database (default: MonitoringDB)
 
 .PARAMETER silent
-    Switches off console output
+    If set, suppresses console log output
 
 .EXAMPLE
-    .\client.ps1 -dbServer "192.168.1.10\SQLEXPRESS" -silent
+    .\client.ps1 -dbServer "192.168.1.10\SQLEXPRESS" -dbUser "admin" -dbPass "password" -silent
+
+.NOTES
+    Run this script with administrative privileges for full functionality.
 #>
 
 param (
@@ -35,6 +36,8 @@ param (
     [string]$dbName = "MonitoringDB",
     [switch]$silent
 )
+
+Import-Module SqlServer -ErrorAction SilentlyContinue
 
 function swissDate {
     return (Get-Date -Format "dd.MM.yyyy HH:mm:ss")
@@ -66,6 +69,19 @@ function InitDBConnection {
     Log "Connection to DB set in connectionstring."
 }
 
+function execSQLQuery {
+    param(
+        [string]$query
+    )
+    
+    try {
+        return Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $query
+    } catch {
+        Log "ERROR: SQL query failed: $_"
+        exit 1
+    }
+}
+
 function Get-SystemData {
     Log "Start collecting..."
 
@@ -83,17 +99,16 @@ function Get-SystemData {
         Select-Object -First 1 -ExpandProperty IPAddress)
 
     return @{
-        OS         = $os.Caption
-        CPU        = $cpu
-        RAMUsed    = $ramUsed
-        RAMTotal   = $ramTotal
-        DiskUsed   = $diskUsed
-        DiskTotal  = $diskTotal
-        IP         = $ip
-        Uptime     = $uptime
+        OS = $os.Caption
+        CPU = $cpu
+        RAMUsed = $ramUsed
+        RAMTotal = $ramTotal
+        DiskUsed = $diskUsed
+        DiskTotal = $diskTotal
+        IP = $ip
+        Uptime = $uptime
     }
 }
-
 function Write-ToDatabase($data) {
     $registerComputerSql = @"
 EXEC InsertComputer
@@ -115,20 +130,15 @@ EXEC InsertMeasurement
     @uptime = $($data.Uptime);
 "@
 
-    try {
-        Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $registerComputerSql
-        Invoke-Sqlcmd -ConnectionString $Global:connectionString -Query $insertSql
-        Log "Successfully sent data."
-    } catch {
-        Log "ERROR SQL: $_"
-        exit 1
-    }
+    Log "Writing data to database..."
+    execSQLQuery -query $registerComputerSql
+    execSQLQuery -query $insertSql
+    Log "Data written successfully."
 }
 
-# todo: create own function get get all stugfg
-
-# ====== Script ======
-Import-Module SqlServer -ErrorAction SilentlyContinue
+#----------------
+# Main script 
+#----------------
 
 CheckAdmin
 CheckParams
@@ -136,8 +146,9 @@ InitDBConnection
 
 try {
     $data = Get-SystemData
+    
     Write-ToDatabase -data $data
 } catch {
-    Log "ERROR: while collectiong data: $_"
+    Log "ERROR: Unexpected error: $_"
     exit 1
 }

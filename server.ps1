@@ -30,6 +30,8 @@
 
 .EXAMPLE
     .\server.ps1 -dbUser "serverUser" -dbPass "P@ssword1"
+.NOTES
+    Run this script with administrative privileges for full functionality.
 #>
 
 param (
@@ -85,6 +87,15 @@ function execSQLQuery {
     }
 }
 
+function EnsureArray {
+    param ($item)
+    if ($null -eq $item) { return @() }
+    if ($item -is [System.Collections.IEnumerable] -and -not ($item -is [string])) {
+        return ,@($item)
+    }
+    return ,$item
+}
+
 function Getcpu7daysDays {
     $query = "SELECT * FROM vw_AvgCpuUsageLast7Days"
     return execSQLQuery -query $query
@@ -136,6 +147,59 @@ function WriteToJs {
         $osStats
     )
 
+    # Process array-style sections into guaranteed arrays
+    $cpu7DaysArray = @( (EnsureArray $cpu7days) | ForEach-Object {
+        @{ 
+            day = $_.day.ToString("yyyy-MM-dd"); 
+            avgCpuUsage = $_.avgCpuUsage
+        }
+    })
+    $ram7DaysArray = @( (EnsureArray $ram7days) | ForEach-Object {
+        @{ 
+            day = $_.day.ToString("yyyy-MM-dd"); 
+            avgRamUsagePercent = $_.avgRamUsagePercent
+        }
+    })
+    $osStatsArray = @( (EnsureArray $osStats) | ForEach-Object {
+        @{
+            osName = $_.operatingSystem
+            percentage = $_.percentage -as [double]
+        }
+    })
+    $warningsArray = @( (EnsureArray $warnings) | ForEach-Object {
+        @{
+            warningId = $_.warningId
+            measurementId = $_.measurementId
+            type = $_.type
+            description = $_.description
+            severityLevel = $_.severityLevel
+            timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+            hostname = $_.hostname
+        }
+    })
+    $measurementsArray = @( (EnsureArray $measurements) | ForEach-Object {
+        @{
+            hostname = $_.hostname
+            cpuUsagePercent = $_.cpuUsagePercent
+            ramUsagePercent = $_.ramUsagePercent
+            diskUsagePercent = $_.diskUsagePercent
+            uptimeHours = [math]::Round($_.uptimeMinutes / 60, 1)
+            timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+        }
+    })
+    $warningStatsArray = @( (EnsureArray $warningStats) | ForEach-Object {
+        $count = $_.count -as [int]
+        if (-not $count) { $count = 0 }
+
+        $percentage = $_.percentage -as [double]
+        if (-not $percentage) { $percentage = 0 }
+
+        @{
+            type = $_.warningType
+            count = $count
+            percentage = $percentage
+        }
+    })
     $data = @{
         lastUpdated = (swissDate)
         summary = @{
@@ -145,58 +209,12 @@ function WriteToJs {
             avgRamUsageToday = $summary.avgRamUsageToday
             avgWarningsLast7Days = $summary.avgWarningsLast7Days
         }
-        osStats = $osStats | ForEach-Object {
-            @{
-                osName = $_.operatingSystem
-                percentage = $_.percentage -as [double]
-            }
-        }
-        warnings = $warnings | ForEach-Object {
-            @{
-                warningId = $_.warningId
-                measurementId = $_.measurementId
-                type = $_.type
-                description = $_.description
-                severityLevel = $_.severityLevel
-                timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss") # american format, because JS uses this in this usecase
-                hostname = $_.hostname
-            }
-        }
-        measurements = $measurements | ForEach-Object {
-            @{
-                hostname = $_.hostname
-                cpuUsagePercent = $_.cpuUsagePercent
-                ramUsagePercent = $_.ramUsagePercent
-                diskUsagePercent = $_.diskUsagePercent
-                uptimeHours = [math]::Round($_.uptimeMinutes / 60, 1)
-                timestamp = $_.timestamp.ToString("yyyy-MM-dd HH:mm:ss")
-            }
-        }
-        cpu7Days = $cpu7days | ForEach-Object {
-            @{ 
-                day = $_.day.ToString("yyyy-MM-dd"); 
-                avgCpuUsage = $_.avgCpuUsage
-            }
-        }
-        ram7Days = $ram7days | ForEach-Object {
-            @{ 
-                day = $_.day.ToString("yyyy-MM-dd"); ; 
-                avgRamUsagePercent = $_.avgRamUsagePercent
-            }
-        }
-       warningStats = $warningStats | ForEach-Object {
-            $count = $_.count -as [int]
-            if (-not $count) { $count = 0 }
-
-            $percentage = $_.percentage -as [double]
-            if (-not $percentage) { $percentage = 0 }   
-
-            @{
-                type = $_.warningType
-                count = $count
-                percentage = $percentage
-            }
-        }
+        osStats = $osStatsArray
+        warnings = $warningsArray
+        measurements = $measurementsArray
+        cpu7Days = $cpu7DaysArray
+        ram7Days = $ram7DaysArray
+        warningStats = $warningStatsArray
     }
 
     try {
@@ -210,7 +228,10 @@ function WriteToJs {
     }
 }
 
+#----------------
 # Main script 
+#----------------
+
 CheckAdmin
 CheckParams
 InitDBConnection

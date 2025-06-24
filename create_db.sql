@@ -11,7 +11,7 @@ USE MonitoringDB;
 GO
 
 -- ========================
--- drop users and logins if they exist  and then create new ones
+-- drop users and logins if they exist and then create new ones
 -- ========================
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'clientUser')
     DROP USER clientUser;
@@ -19,16 +19,16 @@ IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'clientUser')
     DROP LOGIN clientUser;
 GO
 
+CREATE LOGIN clientUser WITH PASSWORD = 'wsOIe6K9*uJ3';
+CREATE USER clientUser FOR LOGIN clientUser;
+
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'serverUser')
     DROP USER serverUser;
 IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
     DROP LOGIN serverUser;
 GO
 
-CREATE LOGIN clientUser WITH PASSWORD = 'Client123!';
-CREATE USER clientUser FOR LOGIN clientUser;
-
-CREATE LOGIN serverUser WITH PASSWORD = 'Server123!';
+CREATE LOGIN serverUser WITH PASSWORD = 'rYTI]{T2768£';
 CREATE USER serverUser FOR LOGIN serverUser;
 GO
 
@@ -109,7 +109,7 @@ BEGIN
         IF @cpuUsage < 0 OR @cpuUsage > 100
             THROW 50001, 'Invalid  CPU Value: must be inbetween of  0 and 100.', 1;
 
-        -- Messung einfügen
+        -- insert measurement
         INSERT INTO Measurement (
             computerId,
             cpuUsagePercent,
@@ -169,66 +169,6 @@ BEGIN
 
         DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
         THROW 70001, @Err, 1;
-    END CATCH
-END;
-GO
-
--- get system stats
-CREATE PROCEDURE GetSystemStats
-AS
-BEGIN
-    BEGIN TRY
-        -- last 24h
-        SELECT 
-            c.hostname,
-            COUNT(*) AS totalMeasurements,
-            AVG(m.cpuUsagePercent) AS avgCpu,
-            MAX(m.cpuUsagePercent) AS maxCpu,
-            MIN(m.cpuUsagePercent) AS minCpu
-        FROM Measurement m
-        JOIN Computer c ON c.computerId = m.computerId
-        WHERE m.timestamp > DATEADD(HOUR, -24, GETDATE())
-        GROUP BY c.hostname;
-    END TRY
-    BEGIN CATCH
-        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
-        THROW 50012, @Err, 1;
-    END CATCH
-END;
-GO
-
--- get all warnings for a computer
-CREATE PROCEDURE GetActiveWarningsForComputer
-    @hostname VARCHAR(255)
-AS
-BEGIN
-    BEGIN TRY
-        -- check if the host exist
-        IF NOT EXISTS (SELECT 1 FROM Computer WHERE hostname = @hostname)
-            THROW 50020, 'Computername nicht gefunden.', 1;
-
-        -- get the current warning
-        DECLARE @measurementId INT;
-
-        SELECT TOP 1 @measurementId = m.measurementId
-        FROM Measurement m
-        JOIN Computer c ON c.computerId = m.computerId
-        WHERE c.hostname = @hostname
-        ORDER BY m.timestamp DESC;
-
-        -- get last warning
-        SELECT 
-            w.type,
-            w.description,
-            w.severityLevel,
-            m.timestamp
-        FROM Warning w
-        JOIN Measurement m ON m.measurementId = w.measurementId
-        WHERE w.measurementId = @measurementId;
-    END TRY
-    BEGIN CATCH
-        DECLARE @Err NVARCHAR(4000) = ERROR_MESSAGE();
-        THROW 50021, @Err, 1;
     END CATCH
 END;
 GO
@@ -405,15 +345,16 @@ SELECT
      WHERE CAST(m.timestamp AS DATE) = CAST(GETDATE() AS DATE)
     ) AS warningsToday,
 
-    -- Average number of warnings per day over the last 7 days
+    -- Average number of warnings per day over the last 7 days, excluding today
     (SELECT ROUND(ISNULL(AVG(warningCount), 0), 1)
-     FROM (
-         SELECT CAST(m.timestamp AS DATE) AS [day], COUNT(*) AS warningCount
-         FROM Warning w
-         JOIN Measurement m ON m.measurementId = w.measurementId
-         WHERE m.timestamp >= DATEADD(DAY, -7, GETDATE())
-         GROUP BY CAST(m.timestamp AS DATE)
-     ) AS dailyWarnings
+        FROM (
+            SELECT CAST(m.timestamp AS DATE) AS [day], COUNT(*) AS warningCount
+            FROM Warning w
+            JOIN Measurement m ON m.measurementId = w.measurementId
+            WHERE m.timestamp >= CAST(DATEADD(DAY, -7, GETDATE()) AS DATE)
+            AND m.timestamp < CAST(GETDATE() AS DATE)
+            GROUP BY CAST(m.timestamp AS DATE)
+        ) AS dailyWarnings
     ) AS avgWarningsLast7Days;
 GO
 
@@ -509,7 +450,7 @@ Unioned AS (
     SELECT warningType, count FROM WarningCounts
     UNION ALL
     SELECT 'Healthy', count FROM HealthyCount
-    WHERE count > 0 -- ✅ Only include if healthy measurements exist
+    WHERE count > 0 -- only include if healthy measurements exist
 ),
 Total AS (
     SELECT SUM(count) AS total FROM Unioned
@@ -554,10 +495,8 @@ CREATE INDEX IX_MeasurementCategory_CategoryId ON MeasurementCategory (categoryI
 -- ========================
 
 -- client user
-GRANT SELECT,  INSERT, UPDATE ON Computer TO clientUser;
-GRANT INSERT ON Measurement TO clientUser;
+GRANT SELECT ON Computer TO clientUser;
 GRANT SELECT ON Category TO clientUser;
-GRANT INSERT ON MeasurementCategory TO clientUser;
 GRANT EXECUTE ON InsertMeasurement TO clientUser;
 GRANT EXECUTE ON InsertComputer TO clientUser;
 GO
