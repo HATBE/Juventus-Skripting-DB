@@ -1,31 +1,35 @@
 <#
 .SYNOPSIS
-    Export monitoring data from SQL Server to data.js
+    Exports monitoring data from SQL Server into js file.
 
 .DESCRIPTION
-    Connects to a SQL Server MonitoringDB and fetches:
-    - Computers
-    - Warnings
-    - Summary (counts, averages)
-    Then writes it all to a JavaScript file in a `const data = { ... }` format.
+    Connects to a SQL Server instance and retrieves monitoring data from views:
+    - Latest warnings
+    - Recent measurements
+    - Summary stats
+    - CPU/RAM usage history (7 days)
+    - OS statistics
+    - Warning type statistics
+
+    Outputs the data as a JavaScript object 
 
 .PARAMETER dbServer
-    SQL Server instance (e.g., .\SQLEXPRESS or localhost)
+    SQL Server instance (z. b. ".\SQLEXPRESS" or "localhost")
 
 .PARAMETER dbUser
-    SQL Server login username
+    SQL login username
 
 .PARAMETER dbPass
-    SQL Server login password
+    SQL login password
 
 .PARAMETER dbName
-    Name of the database (default: MonitoringDB)
+    Name of the target database (default: MonitoringDB)
 
 .PARAMETER silent
-    Suppresses log output if specified
+    If set, suppresses console log output
 
 .EXAMPLE
-    .\Export-ToDataJs.ps1 -dbUser serverUser -dbPass Server123!
+    .\server.ps1 -dbUser "serverUser" -dbPass "P@ssword1"
 #>
 
 param (
