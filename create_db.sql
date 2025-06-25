@@ -15,26 +15,64 @@ GO
 -- ========================
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'clientUser')
     DROP USER clientUser;
-IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'clientUser')
-    DROP LOGIN clientUser;
-GO
 
-CREATE LOGIN clientUser WITH PASSWORD = 'wsOIe6K9*uJ3';
+-- Drop login only if it's not connected
+IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'clientUser')
+BEGIN
+    IF NOT EXISTS (
+        SELECT * 
+        FROM sys.dm_exec_sessions s
+        JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+        WHERE s.login_name = 'clientUser'
+    )
+        DROP LOGIN clientUser;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.server_principals WHERE name = 'clientUser')
+    CREATE LOGIN clientUser WITH PASSWORD = 'wsOIe6K9*uJ3';
+
 CREATE USER clientUser FOR LOGIN clientUser;
 
 IF EXISTS (SELECT * FROM sys.database_principals WHERE name = 'serverUser')
     DROP USER serverUser;
-IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
-    DROP LOGIN serverUser;
-GO
 
-CREATE LOGIN serverUser WITH PASSWORD = 'rYTI]{T2768£';
+-- Drop login only if it's not connected
+IF EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
+BEGIN
+    IF NOT EXISTS (
+        SELECT * 
+        FROM sys.dm_exec_sessions s
+        JOIN sys.dm_exec_connections c ON s.session_id = c.session_id
+        WHERE s.login_name = 'serverUser'
+    )
+        DROP LOGIN serverUser;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.server_principals WHERE name = 'serverUser')
+    CREATE LOGIN serverUser WITH PASSWORD = 'rYTI]{T2768£';
+
 CREATE USER serverUser FOR LOGIN serverUser;
 GO
 
 -- ========================
 -- create tables
 -- ========================
+
+DROP TABLE IF EXISTS MeasurementCategory;
+GO
+
+DROP TABLE IF EXISTS Warning;
+GO
+
+DROP TABLE IF EXISTS Measurement;
+GO
+
+DROP TABLE IF EXISTS Computer;
+GO
+
+
+DROP TABLE IF EXISTS Category;
+GO
 
 CREATE TABLE Computer (
     computerId INT PRIMARY KEY IDENTITY(1,1),
@@ -92,6 +130,10 @@ GO
 -- ========================
 
 -- Insert new measurement with validation
+
+DROP PROCEDURE IF EXISTS InsertMeasurement;
+GO
+
 CREATE PROCEDURE InsertMeasurement
     @computerId INT,
     @cpuUsage FLOAT,
@@ -142,6 +184,10 @@ END;
 GO
 
 -- generate warnings (used by triggers)
+
+DROP PROCEDURE IF EXISTS InsertWarningWithCategory;
+GO
+
 CREATE PROCEDURE InsertWarningWithCategory
     @measurementId INT,
     @type VARCHAR(50),
@@ -174,6 +220,9 @@ END;
 GO
 
 -- insert a new computer or update last contact if it already exists
+DROP PROCEDURE IF EXISTS InsertComputer;
+GO
+
 CREATE PROCEDURE InsertComputer
     @hostname VARCHAR(255),
     @ipAddress VARCHAR(50),
