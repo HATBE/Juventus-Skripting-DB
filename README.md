@@ -2,27 +2,27 @@
 
 ## Leeres Dashboard (Keine Daen in DB)
 
-![Arduino](./.img/dashboard-empty.PNG)
+![](./.img/dashboard-empty.PNG)
 
 ## Dashboard mit einigen Daten in DB
 
-![Arduino](./.img/dashboard-full.PNG)
+![](./.img/dashboard-full.PNG)
 
 ## Ausführung Client Sript
 
-![Arduino](./.img/client-script.PNG)
+![](./.img/client-script.PNG)
 
 ## Ausführung Server Sript
 
-![Arduino](./.img/server-script.PNG)
+![](./.img/server-script.PNG)
 
 ## Datenbank Diagramm
 
-![Arduino](./.img/db-dia.PNG)
+![](./.img/db-dia.PNG)
 
 ## Architektur
 
-![Arduino](./.img/aufbau.PNG)
+![](./.img/aufbau.png)
 
 # Client-Skript (client.ps1)
 
