@@ -1,6 +1,6 @@
 # Screenshots
 
-## Leeres Dashboard (Keine Daen in DB)
+## Leeres Dashboard (Keine Daten in DB)
 
 ![](./.img/dashboard-empty.PNG)
 
